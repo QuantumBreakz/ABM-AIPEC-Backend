@@ -1,0 +1,23 @@
+{
+  "Id": 101,
+  "StandOppId": "ADIPEC26-11-1",
+  "CompanyName": " Example Drilling L.L.C.",
+  "CountryName": "United Arab Emirates",
+  "StandNumber": "1101",
+  "Address": " Example Tower, Street 1",
+  "City": " Abu Dhabi",
+  "WebsiteLink": "www.exampledrilling.example",
+  "WebsiteLinkName": "Example Drilling",
+  "Facebook": null,
+  "Twitter": "twitter.com/exampledrilling",
+  "LinkedIn": "https://www.linkedin.com/company/example-drilling",
+  "YouTube": null,
+  "Instagram": null,
+  "CompanyDescriptionTitle": "Example Drilling provides invented drilling services.",
+  "Description": null,
+  "ProductCategory": "1, 3",
+  "ExhibitorType": "Main Exhibitor",
+  "Category": "[]",
+  "Hall": "Hall 1",
+  "SponsorType": ""
+}

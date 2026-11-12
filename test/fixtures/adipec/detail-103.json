@@ -1,0 +1,23 @@
+{
+  "Id": 103,
+  "StandOppId": "ADIPEC26-12-7",
+  "CompanyName": "EXAMPLE DRILLING LLC",
+  "CountryName": "United Arab Emirates",
+  "StandNumber": "2207",
+  "Address": null,
+  "City": null,
+  "WebsiteLink": "https://exampledrilling.example/",
+  "WebsiteLinkName": null,
+  "Facebook": null,
+  "Twitter": null,
+  "LinkedIn": null,
+  "YouTube": null,
+  "Instagram": null,
+  "CompanyDescriptionTitle": null,
+  "Description": null,
+  "ProductCategory": null,
+  "ExhibitorType": "Main Exhibitor",
+  "Category": "[]",
+  "Hall": "Hall 2",
+  "SponsorType": ""
+}
