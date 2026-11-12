@@ -129,7 +129,11 @@ for (let i = 0; i < COUNT; i++) {
       evidenceUrls: hasWebsite ? [`https://${slug}.example/news`] : [],
     },
   };
-  const company = await Company.findOneAndUpdate({ normalizedName: doc.normalizedName }, { $set: doc }, { upsert: true, returnDocument: 'after' });
+  const company = await Company.findOneAndUpdate(
+    { normalizedName: doc.normalizedName },
+    { $set: doc },
+    { upsert: true, returnDocument: 'after' },
+  );
 
   // 0–3 contacts per company, with emails in every verification status.
   const contactCount = i % 4;
