@@ -1,0 +1,23 @@
+{
+  "Id": 104,
+  "StandOppId": "ADIPEC26-13-2",
+  "CompanyName": "Demo Subsea Ltd",
+  "CountryName": "United Kingdom",
+  "StandNumber": "3302",
+  "Address": null,
+  "City": "Aberdeen",
+  "WebsiteLink": "demosubsea.example",
+  "WebsiteLinkName": null,
+  "Facebook": "facebook.com/demosubsea",
+  "Twitter": null,
+  "LinkedIn": null,
+  "YouTube": null,
+  "Instagram": null,
+  "CompanyDescriptionTitle": "Demo Subsea builds invented subsea robots.",
+  "Description": null,
+  "ProductCategory": "4",
+  "ExhibitorType": "Main Exhibitor",
+  "Category": "[]",
+  "Hall": "Hall 3",
+  "SponsorType": ""
+}

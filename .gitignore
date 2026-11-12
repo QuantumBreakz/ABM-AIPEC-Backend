@@ -1,0 +1,10 @@
+node_modules
+dist
+.env
+.env.*
+!.env.example
+# never commit lead data — this repo is public
+*.csv
+dump/
+*.archive
+

@@ -1,0 +1,30 @@
+# Scheduled jobs: GitHub calls the backend, the backend queues the work.
+# Needs repo variable BACKEND_URL and repo secret CRON_SECRET (same value as on Render).
+# Run by hand: Actions → cron → Run workflow → type the task name.
+name: cron
+on:
+  workflow_dispatch:
+    inputs:
+      task: { description: "Task name, e.g. refresh-websites", required: true }
+  # Turn these on when the tasks exist (BE-2.6 refresh-websites, BE-5.3 verify-emails):
+  # schedule:
+  #   - cron: "0 1 * * *"   # verify-emails, nightly
+  #   - cron: "0 2 * * 0"   # refresh-websites, weekly
+
+jobs:
+  run:
+    if: vars.BACKEND_URL != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pick task
+        id: t
+        run: |
+          case "${{ github.event.schedule }}" in
+            "0 1 * * *") echo "task=verify-emails" >> "$GITHUB_OUTPUT" ;;
+            "0 2 * * 0") echo "task=refresh-websites" >> "$GITHUB_OUTPUT" ;;
+            *) echo "task=${{ inputs.task }}" >> "$GITHUB_OUTPUT" ;;
+          esac
+      - name: Wake the backend
+        run: curl -fsS --retry 5 --retry-delay 20 --max-time 90 "${{ vars.BACKEND_URL }}/health"
+      - name: Trigger
+        run: curl -fsS -X POST -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" "${{ vars.BACKEND_URL }}/cron/${{ steps.t.outputs.task }}"

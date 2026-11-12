@@ -1,0 +1,81 @@
+{
+  "Result": [
+    {
+      "Id": 101,
+      "StandOppId": "ADIPEC26-11-1",
+      "CompanyName": " Example Drilling L.L.C.",
+      "CountryName": "United Arab Emirates",
+      "CompanyLogo": "x.png",
+      "StandNumber": "1101",
+      "Hall": "Hall 1",
+      "SponsorType": "",
+      "ProductCategory": "1, 3"
+    },
+    {
+      "Id": 102,
+      "StandOppId": "ADIPEC26-JB-01",
+      "CompanyName": "Sample Energy Group",
+      "CountryName": "Norway",
+      "CompanyLogo": "",
+      "StandNumber": null,
+      "Hall": null,
+      "SponsorType": "Partner",
+      "ProductCategory": null
+    },
+    {
+      "Id": 103,
+      "StandOppId": "ADIPEC26-12-7",
+      "CompanyName": "EXAMPLE DRILLING LLC",
+      "CountryName": "United Arab Emirates",
+      "CompanyLogo": "",
+      "StandNumber": "2207",
+      "Hall": "Hall 2",
+      "SponsorType": "",
+      "ProductCategory": null
+    },
+    {
+      "Id": 104,
+      "StandOppId": "ADIPEC26-13-2",
+      "CompanyName": "Demo Subsea Ltd",
+      "CountryName": "United Kingdom",
+      "CompanyLogo": "",
+      "StandNumber": "3302",
+      "Hall": "Hall 3",
+      "SponsorType": "",
+      "ProductCategory": "4"
+    },
+    {
+      "Id": 105,
+      "StandOppId": "DMG",
+      "CompanyName": "DMGTEST1",
+      "CountryName": "Afghanistan",
+      "CompanyLogo": "",
+      "StandNumber": "0",
+      "Hall": null,
+      "SponsorType": "",
+      "ProductCategory": null
+    },
+    {
+      "Id": 106,
+      "StandOppId": "ADIPEC25-1-1",
+      "CompanyName": "Old Edition Co",
+      "CountryName": "Italy",
+      "CompanyLogo": "",
+      "StandNumber": "1",
+      "Hall": null,
+      "SponsorType": "",
+      "ProductCategory": null
+    },
+    {
+      "Id": 107,
+      "StandOppId": null,
+      "CompanyName": "No Stand Id",
+      "CountryName": null,
+      "CompanyLogo": "",
+      "StandNumber": null,
+      "Hall": null,
+      "SponsorType": "",
+      "ProductCategory": null
+    }
+  ]
+}

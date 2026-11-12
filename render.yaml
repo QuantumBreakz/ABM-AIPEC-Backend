@@ -1,0 +1,35 @@
+# Render Blueprint. In Render: New → Blueprint → pick this repo.
+# Creates one free web service (API + workers in one process) and one free Key Value (Redis) for BullMQ.
+# MongoDB is on Atlas M0; Render asks you to paste MONGO_URL during setup.
+services:
+  - type: web
+    name: abm-aipec-backend
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: MONGO_URL
+        sync: false # paste the Atlas connection string
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CRON_SECRET
+        generateValue: true # copy this into GitHub → Settings → Secrets → CRON_SECRET
+      - key: SCRAPER_USER_AGENT
+        value: SmartLogicsResearchBot/1.0
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: abm-aipec-queue
+          property: connectionString
+
+  - type: keyvalue
+    name: abm-aipec-queue
+    plan: free
+    maxmemoryPolicy: noeviction # BullMQ breaks if Redis evicts keys
+    ipAllowList: [] # only reachable from our own Render services
