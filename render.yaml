@@ -6,12 +6,13 @@ services:
     name: abm-aipec-backend
     runtime: node
     plan: free
-    buildCommand: npm ci && npm run build
+    # --include=dev: NODE_ENV=production would otherwise skip TypeScript, and the build would fail.
+    buildCommand: npm ci --include=dev && npm run build
     startCommand: npm start
     healthCheckPath: /health
     envVars:
       - key: NODE_VERSION
-        value: "22"
+        value: "24"
       - key: NODE_ENV
         value: production
       - key: MONGO_URL

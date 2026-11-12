@@ -1,9 +1,10 @@
 {
   "name": "abm-aipec-backend",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.19"
   },
   "scripts": {
     "dev": "tsx watch --env-file=.env src/index.ts",
@@ -47,5 +48,10 @@
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vitest": "^5.1.0"
+  },
+  "allowScripts": {
+    "esbuild": false,
+    "fsevents": false,
+    "msgpackr-extract": false
   }
 }
