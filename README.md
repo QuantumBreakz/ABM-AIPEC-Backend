@@ -4,7 +4,7 @@ API + background workers for the ADIPEC lead-generation system. The full plan an
 
 Status: **All six phases are built**: foundations, exhibitors, company research, people, AI drafts + exports, email verification, gap report, backups. Checked against the real frontend ([docs/frontend-integration.md](docs/frontend-integration.md)). What's left needs people, not code: the decisions in PLAN.md and the real sample run ([docs/acceptance.md](docs/acceptance.md)).
 
-Other docs: [runbook](docs/runbook.md) (deploy, operate, fix, back up, security checklist) · [cost declaration](docs/cost-declaration.md) · [ADIPEC source](docs/adipec-source.md).
+Other docs: [requirements coverage](docs/requirements-coverage.md) (every PTC stage, FR and NFR → code + test) · [runbook](docs/runbook.md) (deploy, operate, fix, back up, security checklist) · [cost declaration](docs/cost-declaration.md) · [ADIPEC source](docs/adipec-source.md).
 
 ---
 

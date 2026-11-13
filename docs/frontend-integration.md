@@ -71,4 +71,5 @@ Re-checked on 13 Nov against `main` @ `510e08e` (now including FE-1.4 company de
 4. **Starting a run while another is *paused*:** the backend says 409 (queues are shared); the mock allows it.
 5. **CSV import counts:** the backend counts a row as `updated` only if something changed, and an import only fills blanks (it never overwrites a reviewer's edits). The mock counts every existing person as updated.
 6. **`/health` `workers`** is a number (worker count), not a boolean.
-7. FE-0.2 `vercel.json` isn't in the repo yet. Production needs the `/api/*` rewrite to the Render URL.
+7. **New in the contract (additive):** `CompanyFilters` gained `minCompleteness` (0–100) and `approved` (boolean) for PTC §6.3's "research completeness" and "approval" filters. Please add them to `src/api/types.ts`, the mock and the filter bar. The CSVs also gained extra columns at the end (§5.1/§6 fields); the mock's columns keep their positions.
+8. FE-0.2 `vercel.json` isn't in the repo yet. Production needs the `/api/*` rewrite to the Render URL.
