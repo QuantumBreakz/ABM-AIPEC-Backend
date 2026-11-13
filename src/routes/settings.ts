@@ -11,11 +11,12 @@ export const suppressionsRoutes = Router(); // admin only (mounted in app.ts)
 
 /** Which paid providers are switched on. "On" only ever means "a key is set" (zero-new-cost rule). */
 settingsRoutes.get('/providers', (_req, res) => {
+  const hasLlm = !!(env.OPENROUTER_API_KEY || env.LLM_API_KEY);
   const body: Providers = {
     contactout: !!env.CONTACTOUT_API_KEY,
     millionverifier: !!env.MILLIONVERIFIER_API_KEY,
-    llm: !!env.LLM_API_KEY,
-    llmModel: env.LLM_API_KEY ? env.LLM_MODEL : undefined,
+    llm: hasLlm,
+    llmModel: hasLlm ? env.LLM_MODEL : undefined,
   };
   res.json(body);
 });

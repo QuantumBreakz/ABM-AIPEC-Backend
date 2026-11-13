@@ -17,9 +17,11 @@ const schema = z.object({
   CONTACTOUT_MAX_LOOKUPS: z.coerce.number().int().min(0).default(50), // hard cap per calendar month
   MILLIONVERIFIER_API_KEY: z.string().optional(),
   MILLIONVERIFIER_MAX_CHECKS: z.coerce.number().int().min(0).default(500), // hard cap per calendar month
-  // Claude API key (the AI drafts are written with Anthropic's SDK). Empty = AI off, drafts stay "pending".
+  // OpenRouter (free tier) or Claude API key. Empty = AI off, drafts stay "pending".
+  OPENROUTER_API_KEY: z.string().optional(),
   LLM_API_KEY: z.string().optional(),
-  LLM_MODEL: z.string().default('claude-opus-5-5'),
+  LLM_BASE_URL: z.string().default('https://openrouter.ai/api/v1'),
+  LLM_MODEL: z.string().default('meta-llama/llama-3.3-70b-instruct:free'),
   LLM_RPM: z.coerce.number().int().min(1).default(20), // max AI requests per minute
 });
 
