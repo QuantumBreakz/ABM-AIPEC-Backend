@@ -27,6 +27,8 @@ export const companyFiltersSchema = z.object({
   emailStatus: z.enum(EMAIL_STATUSES).optional(),
   aiStatus: z.enum(AI_STATUSES).optional(),
   duplicate: bool.optional(),
+  minCompleteness: z.coerce.number().int().min(0).max(100).optional(), // PTC §6.3 "research completeness"
+  approved: bool.optional(), // PTC §6.3 "approval": company AI draft approved
   sort: z.enum(['name', '-name', 'updatedAt', '-updatedAt', 'completeness', '-completeness']).default('name'),
 });
 export type CompanyFilters = z.infer<typeof companyFiltersSchema>;
@@ -63,6 +65,8 @@ export function companyQuery(f: CompanyFilters): Filter {
   if (f.emailStatus) and.push({ emailStatuses: f.emailStatus });
   if (f.aiStatus) and.push({ 'ai.status': f.aiStatus });
   if (f.duplicate !== undefined) and.push({ duplicateOf: { $exists: f.duplicate } });
+  if (f.minCompleteness !== undefined) and.push({ completeness: { $gte: f.minCompleteness } });
+  if (f.approved !== undefined) and.push(f.approved ? { 'ai.status': 'approved' } : { 'ai.status': { $ne: 'approved' } });
   return and.length ? { $and: and } : {};
 }
 

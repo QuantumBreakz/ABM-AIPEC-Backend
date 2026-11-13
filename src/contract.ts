@@ -92,6 +92,8 @@ export type CompanyFilters = {
   emailStatus?: EmailStatus;
   aiStatus?: AiStatus;
   duplicate?: boolean;
+  minCompleteness?: number; // 0–100 (PTC §6.3 "research completeness")
+  approved?: boolean; // company AI draft approved or not (PTC §6.3 "approval")
   sort?: 'name' | '-name' | 'updatedAt' | '-updatedAt' | 'completeness' | '-completeness';
 };
 
