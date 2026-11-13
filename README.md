@@ -20,7 +20,8 @@ Other docs: [runbook](docs/runbook.md) (deploy, operate, fix, back up, security 
 │        │                                     ▲                            │
 │        │ start run                           │ every step writes its      │
 │        ▼                                     │ status + reason here       │
-│   BullMQ queues ──► workers: directory ─► profile ─► (website, Phase 2)   │
+│   BullMQ queues ──► workers: directory ─► profile ─► website ─► AI drafts │
+│                    emails (on new contacts) · verification (batch)        │
 │        ▲                                                                  │
 │        └── Render Key Value (Redis): just the to-do list, may be wiped    │
 └───────────────────────────────────────────────────────────────────────────┘

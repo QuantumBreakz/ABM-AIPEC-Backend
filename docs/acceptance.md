@@ -1,6 +1,6 @@
 # Acceptance tests (PTC §9) and release gates
 
-Status on 13 Nov 2026. **Automated** = covered by `npm test` (runs in CI on every PR). **Live** = checked against the real site or the real frontend. **To do** = needs the real end-to-end sample run (BE-6.5), which waits on the open decisions in PLAN.md (ADIPEC permission, which paid keys exist).
+Status on 13 Nov 2026 (182 automated tests; every ticket's "done when" list in PLAN.md is ticked except the 5 that need people, and `test/plan-checklist.test.ts` covers the ones that weren't tested elsewhere). **Automated** = covered by `npm test` (runs in CI on every PR). **Live** = checked against the real site or the real frontend. **To do** = needs the real end-to-end sample run (BE-6.5), which waits on the open decisions in PLAN.md (ADIPEC permission, which paid keys exist).
 
 | Test | What must be true | Evidence so far | Status |
 |---|---|---|---|
