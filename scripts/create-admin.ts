@@ -3,6 +3,7 @@
  *   npm run create-admin -- you@company.com
  * For production: run it from your machine with MONGO_URL in .env pointing at Atlas.
  */
+import process from 'node:process';
 import { createInterface } from 'node:readline/promises';
 import { Writable } from 'node:stream';
 import bcrypt from 'bcryptjs';

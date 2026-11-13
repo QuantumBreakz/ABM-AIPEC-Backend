@@ -7,6 +7,7 @@
  *
  * Refuses to run when NODE_ENV=production.
  */
+import process from 'node:process';
 import mongoose from 'mongoose';
 import { completenessOf, refreshContactStats } from '../src/db/helpers.js';
 import { AI_STATUSES, Company, Contact, EMAIL_STATUSES, Event, History, Run, STATUSES, STEPS } from '../src/db/models.js';

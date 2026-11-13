@@ -27,6 +27,7 @@ const parsed = schema.safeParse(process.env);
 if (!parsed.success) {
   console.error(`Invalid environment:\n${z.prettifyError(parsed.error)}`);
   process.exit(1);
+  throw new Error('Invalid environment');
 }
 
 export const env = parsed.data;
