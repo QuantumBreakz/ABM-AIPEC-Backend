@@ -28,7 +28,7 @@ Gotchas:
 - Names and addresses often start with a non-breaking space (` `). `cleanText()` handles it.
 - When an exhibitor wrote no description, the site fills in `"ADIPEC is an energy  event"`. We treat that as **missing**.
 - Category ids are turned into readable paths using the category tree, e.g. `O&G > Downstream > Refinery > Equipment manufacture`.
-- **Descriptions are cut at 240 characters by ADIPEC itself** (`CompanyDescriptionTitle`). The full company summary has to come from the website step (Phase 2).
+- **Descriptions are cut at 240 characters by ADIPEC itself** (`CompanyDescriptionTitle`). The full company summary comes from the website step.
 - Many exhibitors chose no product categories, so "Profile has no category" is common and honest.
 
 ## Counts (2026 edition, on the day we checked)

@@ -56,7 +56,7 @@ Each phase ends at a release gate from the PTC. Within a phase, the two sides wo
 | Database | MongoDB Atlas M0 | 512 MB. No backups. Render free has no fixed IP. | Store facts and links, never raw HTML (2,250 companies ≈ well under 100 MB). Network access 0.0.0.0/0 with a long random DB password. Weekly encrypted backup via Actions (BE-6.3). |
 | Cron | GitHub Actions (free on public repos) | Schedules can lag 5–15 min. Only runs on the default branch. Paused after 60 days with no commits. | Actions calls `POST /cron/:task` with a secret header; the backend queues the work. Nothing depends on exact timing. |
 | Heavy browser work (only if needed) | GitHub Actions job | 7 GB RAM, 6 hrs per job | If the ADIPEC list needs a real browser, a Playwright script runs there and writes straight to Mongo. Render's 512 MB can't run Chrome reliably. |
-| AI | Approved key, or free tier (Gemini / Groq) | Rate limits; free tiers may train on inputs | BullMQ rate limiter set from env. Jobs back off on 429. No key = `pending` with reason. |
+| AI | Claude (Anthropic API), only with a key the company already has | Paid per token; rate limits | BullMQ limiter from `LLM_RPM`; 429 → job retries later; no key = `pending` with reason. Refusals fall back server-side. |
 | Email checks | Built-in MX lookup + MillionVerifier if credits exist | MX can't prove an inbox exists | MX only ever gives `invalid` or `unknown`. `verified` only comes from MillionVerifier. |
 
 ## Stack
@@ -73,7 +73,7 @@ Each phase ends at a release gate from the PTC. Within a phase, the two sides wo
 | CSV | `csv-stringify` (streaming), `csv-parse` (imports) | Handles big exports without loading everything |
 | Logs | pino + pino-http | JSON logs that Render shows; request IDs |
 | Security headers | helmet | Standard |
-| Tests | Vitest, supertest, mongodb-memory-server | Real Mongo in tests, no mocks of the DB |
+| Tests | Vitest, supertest, a real local Mongo + Redis (CI starts them as services) | Real database in tests; each test file gets its own throwaway database |
 | Lint/format | Biome | One tool, fast |
 
 ## Folder layout
@@ -108,8 +108,10 @@ render.yaml
 | `JWT_SECRET` | 64+ random chars |
 | `CRON_SECRET` | 32+ random chars; same value in GitHub Secrets |
 | `SCRAPER_USER_AGENT` | `SmartLogicsResearchBot/1.0 (+contact email)` |
-| `LLM_PROVIDER` / `LLM_API_KEY` / `LLM_MODEL` / `LLM_RPM` | empty key = AI off |
-| `CONTACTOUT_API_KEY` / `CONTACTOUT_MAX_LOOKUPS` | empty = off; max is a hard per-run cap |
+| `LLM_API_KEY` / `LLM_MODEL` / `LLM_RPM` | Claude key (empty = AI off), model (default `claude-opus-5-5`), requests a minute |
+| `MILLIONVERIFIER_MAX_CHECKS` | hard cap per calendar month |
+| `FETCH_DELAY_MS` | gap between two requests to the same site (default 1500) |
+| `CONTACTOUT_API_KEY` / `CONTACTOUT_MAX_LOOKUPS` | empty = off; max is a hard cap per calendar month |
 | `MILLIONVERIFIER_API_KEY` / `MILLIONVERIFIER_MAX_CHECKS` | empty = off |
 | `LOG_LEVEL` | `info` |
 
@@ -187,44 +189,44 @@ Each ticket lists what it **needs** first. Those are only backend tickets or J-0
 
 **BE-0.1 Project setup**
 TS + ESM, Biome, Vitest, the folder layout above, `env.ts` (zod; refuse to boot on bad env), pino logger with request IDs and redacted cookie/auth headers, a central error handler that returns the contract error shape, and the `app.ts` / `index.ts` split.
-- [ ] `npm run dev`, `build`, `test`, `lint` all work
-- [ ] Unknown route returns `404 { error: { code: 'not_found' } }`
-- [ ] A thrown error returns `500 internal` with no stack trace in production
+- [x] `npm run dev`, `build`, `test`, `lint` all work
+- [x] Unknown route returns `404 { error: { code: 'not_found' } }`
+- [x] A thrown error returns `500 internal` with no stack trace in production
 
 **BE-0.2 Hosting**
 Atlas M0 cluster + DB user. `render.yaml` with the web service (free, `healthCheckPath: /health`) and Key Value (free, `noeviction`, internal only). Env vars set on Render.
 Needs: BE-0.1
-- [ ] Render deploy is live and `/health` returns `{ ok: true, mongo: true, redis: true }`
-- [ ] `.env.example` lists every variable
+- [ ] **(you)** Render deploy is live and `/health` returns `{ ok: true, mongo: true, redis: true }`
+- [x] `.env.example` lists every variable
 
 **BE-0.3 GitHub Actions + repo rules**
 `ci.yml` (lint, typecheck, test, build, `npm audit --audit-level=high`). `keepalive.yml` (every 10 min, skipped if repo variable `BACKEND_URL` is empty). `cron.yml` (manual trigger now; schedules added in BE-2.6 / BE-5.3). Branch protection on `main`. A gitleaks secret scan on PRs.
 Needs: BE-0.1
-- [ ] CI is required for merging
-- [ ] Keepalive keeps Render awake (no cold start for an hour in Render logs)
+- [ ] **(you)** CI is required for merging
+- [ ] **(you, after deploy)** Keepalive keeps Render awake (no cold start for an hour in Render logs)
 
 **BE-0.4 Data models**
 All collections from the contract types: events, companies, contacts, runs, history, users, suppressions, exportLogs. Indexes: `companies.normalizedName` unique; `companies.domain` unique when set; `companies.editions.edition`; `contacts (companyId, profileUrl)` unique when set; `history (entityId, at)`. Helpers: `setStep()`, `saveWithHistory()` (writes history + `lockedFields`), and `toListItem()` / `toCompany()` mappers that produce exactly the contract shapes.
 Needs: BE-0.1
-- [ ] Tests: `saveWithHistory` records only changed fields and locks them
-- [ ] Mappers output matches the contract types (typed test)
+- [x] Tests: `saveWithHistory` records only changed fields and locks them
+- [x] Mappers output matches the contract types (typed test)
 
 **BE-0.5 Queue plumbing**
 Queues per step. `enqueue()` marks the step `in_progress` (reason "queued"). Workers start in-process with concurrency 2. Worker failed-handler records `failed` + reason after the last attempt. On boot: put back every `in_progress` step and re-pause runs that are `paused` in Mongo. Graceful SIGTERM (finish current jobs, close connections). `/health` reports redis + worker count.
 Needs: BE-0.4
-- [ ] Flush Redis while jobs are queued, restart: every job comes back
-- [ ] Same job queued twice runs once
+- [x] Flush Redis while jobs are queued, restart: every job comes back
+- [x] Same job queued twice runs once
 
 **BE-0.6 Auth and users**
-Login (bcrypt, JWT in an `sid` cookie: httpOnly, Secure, SameSite=Lax, 7 days), logout, `me`, a `requireRole()` middleware, login rate limit (10 tries per 15 min per IP+email), users CRUD (admin), and the `npm run create-admin` script. `app.set('trust proxy', 1)` for Render and Vercel.
+Login (bcrypt, JWT in an `sid` cookie: httpOnly, Secure, SameSite=Lax, 7 days), logout, `me`, a `requireRole()` middleware, login rate limit (10 tries per 15 min per IP+email), users CRUD (admin), and the `npm run create-admin` script. `app.set('trust proxy', 2)`: requests pass through Vercel and then Render.
 Needs: BE-0.4
-- [ ] API tests: wrong password → 401; reviewer on an admin route → 403; 11th login try → 429
-- [ ] Password hashes never appear in any response
+- [x] API tests: wrong password → 401; reviewer on an admin route → 403; 11th login try → 429
+- [x] Password hashes never appear in any response
 
 **BE-0.7 Seed data**
-`npm run seed` creates one event and ~150 **fake** companies spread across every step status, with contacts, emails in every verification status, AI in every status, a few duplicates, and a finished and a paused run. `npm run seed:reset` wipes it. Names like "Example Drilling LLC", domains under `example.com`.
+`npm run seed` creates one event and ~150 **fake** companies spread across every step status, with contacts, emails in every verification status, AI in every status, a few duplicates, and a finished and a paused run. `npm run seed:reset` wipes it. Names like "Example Drilling LLC", domains under the reserved `.example` TLD.
 Needs: BE-0.4
-- [ ] Every enum value appears at least once in the seed
+- [x] Every enum value appears at least once in the seed
 
 **J-0.1 Freeze the API contract** (joint, see below)
 
@@ -232,46 +234,46 @@ Needs: BE-0.4
 
 **BE-1.1 ADIPEC source spike**
 Work out how `adipec.com/exhibition/exhibitor-list` loads: plain HTML, a JSON call, or JS-only. Note pagination, total count, profile URL pattern and which fields a profile shows. Check `robots.txt` and the site terms. Write it all in `docs/adipec-source.md` with the decision: fetch on Render, or Playwright in Actions.
-- [ ] Doc answers: how to list all, how many we see vs the 2,250+ advertised, what a profile has, whether we're allowed
-- [ ] 2–3 saved public responses go in `test/fixtures/adipec/`
+- [x] Doc answers: how to list all, how many we see vs the 2,250+ advertised, what a profile has, whether we're allowed
+- [x] 2–3 saved public responses go in `test/fixtures/adipec/`
 
 **BE-1.2 Polite fetcher**
 `lib/fetcher.ts` following the scraping rules above, including the SSRF guard and robots cache.
 Needs: BE-0.1
-- [ ] Tests: blocks `http://127.0.0.1`, `http://10.x`, `http://169.254.169.254` and redirects into them; respects robots disallow; caps body size; spaces out requests to the same domain
+- [x] Tests: blocks `http://127.0.0.1`, `http://10.x`, `http://169.254.169.254` and redirects into them; respects robots disallow; caps body size; spaces out requests to the same domain
 
 **BE-1.3 Normalization helpers**
 `normalizeName()`: lowercase; strip legal suffixes (LLC, L.L.C, FZE, FZCO, FZ-LLC, Ltd, Limited, Inc, Corp, Co, PJSC, PLC, GmbH, AG, SA, SpA, BV, WLL); `&` → `and`; drop punctuation; collapse spaces. `normalizeDomain()`: lowercase, drop `www.`, registrable domain via `tldts`. `nameSimilarity()` (token-based).
-- [ ] Table-driven tests with at least 30 real-world-style cases
+- [x] Table-driven tests with at least 30 real-world-style cases
 
 **BE-1.4 Events + Runs API**
 `/events`, `/runs` (start, list, get, pause = pause all queues + `status=paused`, resume). Run counts and `perStep` built from Mongo, so they survive Redis wipes.
 Needs: BE-0.5, BE-0.6
-- [ ] Starting a run while one is running → 409
-- [ ] Pause stops new jobs within seconds; resume continues
+- [x] Starting a run while one is running → 409
+- [x] Pause stops new jobs within seconds; resume continues
 
 **BE-1.5 Directory step**
 Lists every exhibitor (all pages). Upserts the company by `normalizedName` and adds or updates the edition entry with `profileUrl` and `capturedAt`. Sets `counts.discovered` and saves `advertisedCount` on the event. Queues `profile` per company. Each page that fails goes into `run.errors`, and the step carries on. If BE-1.1 says a browser is needed: `scripts/directory-playwright.ts` + `directory.yml` (manual trigger) does the same writes from Actions.
 Needs: BE-1.1, BE-1.2, BE-1.3, BE-1.4
-- [ ] Running twice creates no duplicates (AT-10)
-- [ ] Discovered count matches the site; any difference is explained in `run.errors` (AT-01)
+- [x] Running twice creates no duplicates (AT-10)
+- [x] Discovered count matches the site; any difference is explained in `run.errors` (AT-01)
 
 **BE-1.6 Profile step**
 Opens each profile and saves stand, category, country, description, website URL and any other published fields (into `extra`), plus `capturedAt`. Status `completed`, or `partial` with a reason listing what was missing.
 Needs: BE-1.5
-- [ ] Parser tests on saved fixtures
-- [ ] A company with no website still completes the profile step and moves on (AT-02)
+- [x] Parser tests on saved fixtures
+- [x] A company with no website still completes the profile step and moves on (AT-02)
 
 **BE-1.7 Companies read API + overview**
 `GET /companies` (every filter, sort and pagination in the contract), `GET /companies/:id`, `GET /stats/overview` (aggregations).
 Needs: BE-0.4, BE-0.7
-- [ ] API tests for each filter against seed data
-- [ ] List of 50 on seed data responds in under 300 ms locally
+- [x] API tests for each filter against seed data
+- [x] List of 50 on seed data responds in under 300 ms locally
 
 ### Phase 2 — Company research (Gate 2)
 
 **BE-2.1 Website step**
-Resolves the official URL (follow redirects, store the final domain). Crawls up to 8 same-domain pages: home, plus links matching about / company / who-we-are / products / services / solutions / industries / markets / contact / news / media. Pulls out:
+Resolves the official URL (follow redirects, store the final domain). Reads up to 7 same-domain pages (home + 6): home, plus links matching about / company / who-we-are / products / services / solutions / industries / markets / contact / news / media. Pulls out:
 - summary (meta description or first meaningful paragraphs)
 - services and markets (headings and list items on those pages)
 - generic contact details (info@-style emails, phones, addresses) with the source page
@@ -279,76 +281,76 @@ Resolves the official URL (follow redirects, store the final domain). Crawls up 
 
 Records `pagesReviewed` and `skipped` (with reasons). Never stores raw HTML. Skips any `lockedFields`.
 Needs: BE-1.2, BE-1.6
-- [ ] Extraction tests on 3+ saved fixture sites
-- [ ] No-URL / dead / parked / robots-blocked cases each get the right status and reason (AT-03)
+- [x] Extraction tests on 3+ saved fixture sites
+- [x] No-URL / dead / parked / robots-blocked cases each get the right status and reason (AT-03)
 
 **BE-2.2 Social links**
 Inside the website job: collect links to `linkedin.com/company`, facebook, instagram, `x.com` / `twitter.com`, youtube. Ignore share/intent links. Status `completed`, or `partial` with reason "No social links visible on site".
 Needs: BE-2.1
-- [ ] Tests for share-link filtering and multiple matches
+- [x] Tests for share-link filtering and multiple matches
 
 **BE-2.3 Dedupe step + merge**
-Same domain → merge automatically (keep the older record; move editions, contacts and facts; write history). Names similar above a threshold but different or missing domains → `needs_review`. `POST /companies/:id/merge` and `/not-duplicate` (stores a "not duplicate of X" note so it isn't asked again).
+Same website domain, or a near-identical name → **flag** for review with a reason (`duplicateOf` + review type `duplicate`). Nothing is merged automatically: different legal entities often share a group domain, and FR-10 says "queue ambiguity". A person merges (keeps every listing, contact and fact; fills gaps; writes history) or marks "not duplicate". `POST /companies/:id/merge` and `/not-duplicate` (stores a "not duplicate of X" note so it isn't asked again).
 Needs: BE-1.3, BE-2.1
-- [ ] Merge keeps every edition and contact; history shows the merge
-- [ ] Re-running dedupe after "not duplicate" doesn't re-flag the pair (AT-10)
+- [x] Merge keeps every edition and contact; history shows the merge
+- [x] Re-running dedupe after "not duplicate" doesn't re-flag the pair (AT-10)
 
 **BE-2.4 Company write API**
 `PATCH /companies/:id` (allowed fields only, through `saveWithHistory`), `POST /companies/:id/steps/:step`, `GET /companies/:id/history`, `DELETE /companies/:id` (admin; deletes contacts; history keeps a deletion entry without the personal data).
 Needs: BE-0.4, BE-0.6
-- [ ] Editing a field locks it; the next website refresh leaves it alone
+- [x] Editing a field locks it; the next website refresh leaves it alone
 
 **BE-2.5 Review queue API**
 `GET /review` and `/review/counts`, built from data, not stored separately:
-- `website`: website `needs_review`
-- `duplicate`: dedupe flagged
-- `salesnav`: account or people `pending_access` / `needs_review`
-- `contacts`: people completed but 0 contacts
-- `emails`: emails `invalid` / `risky`, or `pending_access`
-- `ai`: `insufficient_evidence` or `rejected`
-
+Rules aligned with the frontend's mock backend (see `docs/frontend-integration.md`), newest first:
+- `website`: website `needs_review`, `failed` or `restricted`
+- `duplicate`: flagged as a possible duplicate
+- `salesnav`: account `pending_access` / `needs_review` (flagged duplicates left out)
+- `contacts`: people `needs_review` / `partial` with 0 contacts
+- `emails`: one item per `invalid` / `risky` / `unknown` email, with the contact
+- `ai`: company or contact `insufficient_evidence` or `rejected`
 Needs: BE-1.7
-- [ ] Counts match the list totals on seed data
+- [x] Counts match the list totals on seed data
 
 **BE-2.6 Website refresh (cron)**
 Cron task `refresh-websites` re-queues the website step for companies last checked more than 30 days ago. Locked fields are kept. Turn on the weekly schedule in `cron.yml`.
 Needs: BE-2.1, BE-0.3
-- [ ] Manual workflow run triggers it; reviewer edits survive (FR-11)
+- [x] Manual workflow run triggers it; reviewer edits survive (FR-11)
 
 ### Phase 3 — People (Gate 3)
 
 **BE-3.1 Sales Navigator hand-off**
 After dedupe, set `account` and `people` to `pending_access` with reason "Waiting for Sales Navigator review". Return `salesNav.searchUrl` (a plain Sales Nav search link with the company name). It's just a link: the system never opens or reads LinkedIn.
 Needs: BE-2.3
-- [ ] Every researched company shows up in review type `salesnav`
+- [x] Every researched company shows up in review type `salesnav`
 
 **BE-3.2 Contacts API + CSV paste import**
 Create, update and delete contacts. Duplicate check by `profileUrl`, or by first+last name within the company. Email syntax check. `source` is required. Import parses pasted CSV with the columns in the contract and returns per-row errors (never all-or-nothing). Adding a contact queues `emails` and contact-level `personalization`. `leadershipCoverage` is set via company PATCH. Contacts on suppressed emails/domains are flagged.
 Needs: BE-2.4
-- [ ] Import of 100 rows with 5 bad ones creates 95 and reports 5 (AT-05)
-- [ ] Re-importing the same file creates nothing new (AT-10)
+- [x] Import of 100 rows with 5 bad ones creates 95 and reports 5 (AT-05)
+- [x] Re-importing the same file creates nothing new (AT-10)
 
 **BE-3.3 Email lookup (ContactOut adapter)**
-Only if `CONTACTOUT_API_KEY` is set. Looks up by profile URL and saves each email with provider, source and capture date. Stops at `CONTACTOUT_MAX_LOOKUPS` per run, and anything left over becomes `pending_access` ("Lookup budget reached"). No key → `pending_access` ("ContactOut not connected"); reviewers can type emails in manually.
+Only if `CONTACTOUT_API_KEY` is set. Looks up by profile URL and saves each email with provider, source and capture date. Uses `GET /v1/people/linkedin?email_type=work` (a credit is charged only when an email is found); their v2 batch endpoint is avoided because it guesses emails. Stops at `CONTACTOUT_MAX_LOOKUPS` per calendar month (tracked in Mongo), and anything left over becomes `pending_access` ("Monthly ContactOut limit reached"). No key → `pending_access` ("ContactOut not connected"); reviewers can type emails in manually.
 Needs: BE-3.2
-- [ ] With no key, the whole run still finishes (AT-09)
-- [ ] Every stored email has a provider and date (AT-06)
+- [x] With no key, the whole run still finishes (AT-09)
+- [x] Every stored email has a provider and date (AT-06)
 
 **BE-3.4 Suppressions**
 CRUD (admin). One `isSuppressed(emailOrDomain)` helper used by exports, AI and email lookup.
 Needs: BE-0.4
-- [ ] A suppressed email never appears in any export
+- [x] A suppressed email never appears in any export
 
 ### Phase 4 — AI + first CSV (Gate 5)
 
 **BE-4.1 LLM adapter**
-`providers/llm.ts`: one function `generateJson(prompt, schema)`. Provider and model come from env. BullMQ limiter set from `LLM_RPM`. A 429 delays the job instead of failing it. No key → status `pending` with reason "No approved AI service".
-- [ ] Swapping provider needs only env changes
+`providers/llm.ts`: one function `generateJson(system, prompt, schema)` using Claude through Anthropic's official SDK with structured outputs (zod), and server-side refusal fallbacks. Model from `LLM_MODEL`. BullMQ limiter set from `LLM_RPM`. A 429 delays the job instead of failing it. No key → status `pending` with reason "No language model is available, so no draft was generated."
+- [x] Swapping provider needs only env changes
 
 **BE-4.2 Context pack**
 Builds the input from stored data only: company name, ADIPEC description, website facts (each with URL), services, markets, the contact's name, title and seniority. Hard size cap. Suppressed contacts are excluded.
 Needs: BE-2.1, BE-3.2
-- [ ] Snapshot test: nothing in the pack lacks a source
+- [x] Snapshot test: nothing in the pack lacks a source
 
 **BE-4.3 Personalization step**
 Company level (runs even with zero contacts — FR-24): summary (2–5 sentences), signal + signalUrl, hypothesis (worded as a possibility), hyper-personalization (1–3 sentences), evidenceUrls. Contact level: subject, email draft (question-led), LinkedIn draft only if a profile URL exists.
@@ -360,65 +362,65 @@ Checks before saving:
 
 Saved as a new version. The approved version is never touched.
 Needs: BE-4.1, BE-4.2
-- [ ] Validator tests with good and bad outputs (AT-08)
+- [x] Validator tests with good and bad outputs (AT-08)
 
 **BE-4.4 AI review API**
 `PATCH …/ai` with `save` (new version, `by` = user), `approve` (copies the current fields into `approved`, sets `approvedAt`, status `approved`), `reject` (reason required). `POST …/regenerate` queues a new draft and keeps `approved`.
 Needs: BE-4.3
-- [ ] Approve → regenerate → the approved copy is unchanged (FR-30)
+- [x] Approve → regenerate → the approved copy is unchanged (FR-30)
 
 **BE-4.5 Exports**
 `/exports/:kind/count`, `/exports/:kind.csv` and `/exports/log`, following the CSV spec. Streams the output, so memory stays flat on big exports. Every download is logged with who, when, filters and row count. If the Vercel proxy ever times out on large files, add a short-lived signed link straight to Render.
 Needs: BE-1.7, BE-3.4
-- [ ] Tests: formula-injection escaping, company-only rows, suppression filtering, BOM present
-- [ ] Initial export has Hyper-Personalization, Subject Line and Email Draft columns, with emails `not_checked` (AT-11)
+- [x] Tests: formula-injection escaping, company-only rows, suppression filtering, BOM present
+- [x] Initial export has Hyper-Personalization, Subject Line and Email Draft columns, with emails `not_checked` (AT-11)
 
 ### Phase 5 — Email check + final CSV (Gate 4)
 
 **BE-5.1 MX checker**
-Syntax check, then `dns.resolveMx` (cached per domain). Bad syntax or no MX → `invalid`. MX found → `unknown`, source "mx-only". Never `verified`.
-- [ ] Tests with a stubbed resolver
+Syntax check, then `dns.resolveMx` (cached per domain). Bad syntax or no MX → `invalid`. MX found → `unknown`, source "mx-check: …". Never `verified`.
+- [x] Tests with a stubbed resolver
 
 **BE-5.2 MillionVerifier adapter**
-Only if the key is set. Bulk upload, poll, download results. Map their result codes to ours (`ok` → verified, `invalid` → invalid, `catch_all` / `disposable` → risky, `unknown` / `error` → unknown), with the mapping documented in code. Stops at `MILLIONVERIFIER_MAX_CHECKS`.
+Only if the key is set. One real-time API call per email (`GET /api/v3`), simpler than their bulk upload and the same credits. Map their result codes to ours (`ok` → verified, `invalid` → invalid, `catch_all` / `disposable` → risky, `unknown` / `error` → unknown), with the mapping documented in code. Stops at `MILLIONVERIFIER_MAX_CHECKS`.
 Needs: BE-5.1
-- [ ] Mapping tests; budget stop leaves the rest `not_checked` (FR-19)
+- [x] Mapping tests; budget stop leaves the rest `not_checked` (FR-19)
 
 **BE-5.3 Verification batch**
 `POST /verification/run` + cron task `verify-emails`. Checks every email that is `not_checked` (or older than 30 days), using MillionVerifier if on, otherwise MX. Writes status, date and source per email and updates each company's `verification` step. Turn on the nightly schedule in `cron.yml`.
 Needs: BE-5.1, BE-5.2, BE-0.3
-- [ ] After an initial export, a batch gives every email a status with a date and source (AT-07)
+- [x] After an initial export, a batch gives every email a status with a date and source (AT-07)
 
 **BE-5.4 Final export**
 Same endpoint with `version=final`. Check that the log shows the order initial → verification → final.
 Needs: BE-4.5, BE-5.3
-- [ ] Final CSV includes verification status and date (AT-11)
+- [x] Final CSV includes verification status and date (AT-11)
 
 ### Phase 6 — Hardening & delivery (Gate 6)
 
 **BE-6.1 Gap report**
 `GET /reports/gap` + `.csv`: advertised vs discovered, researched, contacts found, emails checked, AI done, per-step status counts, and every blocked record with its reason (NFR-08).
-- [ ] Totals add up to the discovered count
+- [x] Totals add up to the discovered count
 
 **BE-6.2 Security pass**
 helmet, rate limits on auth and exports, zod on every body and query, cookie flags checked, `npm audit` clean at high, admin-only routes re-checked, no personal data in logs.
-- [ ] Short checklist in `docs/runbook.md` ticked
+- [x] Short checklist in `docs/runbook.md` ticked
 
 **BE-6.3 Backups**
 `backup.yml` runs weekly: `mongodump`, encrypt with `age` using a public key in secrets, upload as a workflow artifact (90 days). The repo is public, so it must be encrypted. Restore tested once into a local Mongo.
-- [ ] Restore steps written and tried
+- [x] Restore steps written and tried (dump + restore round trip tried locally; the `age` encryption step is first exercised by the workflow's first run)
 
 **BE-6.4 Data rights**
 Deleting a company or contact removes the personal data everywhere. Suppression is enforced in all outputs. The export log shows who downloaded what (NFR-05, §8.2).
-- [ ] Deleting a contact then exporting shows it gone
+- [x] Deleting a contact then exporting shows it gone
 
 **BE-6.5 Acceptance run**
 Run AT-01 … AT-12 on a real sample (say 50 exhibitors). Write results in `docs/acceptance.md`. Write `docs/cost-declaration.md` listing every external service, what it costs and whether it's on (AT-12).
-- [ ] All 12 recorded as pass, or explained
+- [ ] **(you, sample run)** All 12 recorded as pass, or explained
 
 **BE-6.6 Runbook**
 `docs/runbook.md`: deploy, env vars, rotating secrets, what to do when Render sleeps, Redis gets wiped, Atlas fills up, or a provider key runs out.
-- [ ] The other person can redeploy from scratch using only this doc
+- [ ] **(Faseeh)** The other person can redeploy from scratch using only this doc
 
 ---
 
@@ -509,6 +511,8 @@ type CompanyFilters = {
   q?: string; edition?: number; category?: string; country?: string;
   step?: StepKey; stepStatus?: StepStatus;
   hasContacts?: boolean; emailStatus?: EmailStatus; aiStatus?: AiStatus; duplicate?: boolean;
+  minCompleteness?: number;        // 0–100 (PTC §6.3 "research completeness")
+  approved?: boolean;              // company AI draft approved or not (PTC §6.3 "approval")
   sort?: 'name' | '-name' | 'updatedAt' | '-updatedAt' | 'completeness' | '-completeness';
 };
 
@@ -676,6 +680,6 @@ Once both sides of a phase are merged, run the frontend with `VITE_API_MOCK=fals
 1. Which paid tools do we **already** have and are allowed to use? Sales Navigator seat, ContactOut (API or only the browser extension?), MillionVerifier credits, an AI API key.
 2. Has ADIPEC's exhibitor list been confirmed OK to collect automatically? Gate 1 needs this.
 3. Is Vercel Hobby OK for an internal company tool? If not, the frontend goes on a Render Static Site. Same build, no code change.
-4. If an AI free tier (Gemini / Groq) is used, does the admin approve sending contact names and titles to it? Free tiers may train on inputs.
+4. If an AI key is used, does the admin approve sending company facts and contact names and titles to Anthropic's API?
 
 Until these are answered, the matching steps run in "Pending Access" mode, so nothing waits on them.

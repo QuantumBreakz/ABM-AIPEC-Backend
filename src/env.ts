@@ -12,6 +12,15 @@ const schema = z.object({
   SCRAPER_USER_AGENT: z.string().default('SmartLogicsResearchBot/1.0'),
   FETCH_DELAY_MS: z.coerce.number().default(1500),
   LOG_LEVEL: z.string().default('info'),
+  // Paid providers: each is OFF unless its key is set (zero-new-cost rule, PTC §8).
+  CONTACTOUT_API_KEY: z.string().optional(),
+  CONTACTOUT_MAX_LOOKUPS: z.coerce.number().int().min(0).default(50), // hard cap per calendar month
+  MILLIONVERIFIER_API_KEY: z.string().optional(),
+  MILLIONVERIFIER_MAX_CHECKS: z.coerce.number().int().min(0).default(500), // hard cap per calendar month
+  // Claude API key (the AI drafts are written with Anthropic's SDK). Empty = AI off, drafts stay "pending".
+  LLM_API_KEY: z.string().optional(),
+  LLM_MODEL: z.string().default('claude-opus-5-5'),
+  LLM_RPM: z.coerce.number().int().min(1).default(20), // max AI requests per minute
 });
 
 const parsed = schema.safeParse(process.env);

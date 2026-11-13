@@ -88,8 +88,12 @@ describe('users', () => {
     await admin.patch(`/users/${created.body.id}`).send({ role: 'admin' }).expect(200);
     await admin.delete(`/users/${created.body.id}`).expect(204);
     const me = await admin.get('/auth/me');
-    expect((await admin.delete(`/users/${me.body.id}`)).status).toBe(400);
-    expect((await admin.patch(`/users/${me.body.id}`).send({ role: 'reviewer' })).status).toBe(400);
+    expect((await admin.delete(`/users/${me.body.id}`)).status).toBe(409);
+    expect((await admin.patch(`/users/${me.body.id}`).send({ role: 'reviewer' })).status).toBe(409);
+    expect((await admin.post('/users').send({ email: 'admin@example.com', password: 'long-enough-pw', role: 'reviewer' })).status).toBe(
+      409,
+    );
+    expect((await admin.post('/users').send({ email: 'short@example.com', password: 'short', role: 'reviewer' })).status).toBe(400);
   });
 });
 
@@ -133,7 +137,7 @@ describe('events, runs, companies, overview', () => {
     expect((await reviewer.get('/companies?hasContacts=false')).body.total).toBe(1);
     expect((await reviewer.get('/companies?sort=-completeness')).body.items[0].name).toBe('Gamma Valves');
     expect((await reviewer.get('/companies?pageSize=2&page=2')).body.items).toHaveLength(1);
-    expect((await reviewer.get('/companies?pageSize=500')).status).toBe(400);
+    expect((await reviewer.get('/companies?pageSize=500')).body.pageSize).toBe(200); // capped, like the frontend expects
     expect((await reviewer.get('/companies?q=(')).status).toBe(200); // regex characters are escaped
   });
 
@@ -169,7 +173,7 @@ describe('events, runs, companies, overview', () => {
   });
 
   it('refuses a run for an unknown edition', async () => {
-    expect((await admin.post('/runs').send({ edition: 1999 })).status).toBe(404);
+    expect((await admin.post('/runs').send({ edition: 1999 })).status).toBe(400);
   });
 });
 

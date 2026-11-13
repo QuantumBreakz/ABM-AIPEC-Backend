@@ -117,8 +117,9 @@ const companySchema = new Schema(
       approved: aiVersion,
       versions: { type: [aiVersion], default: [] },
     },
-    duplicateOf: { type: Types.ObjectId, ref: 'Company' },
-    notDuplicateOf: { type: [Types.ObjectId], default: [] },
+    duplicateOf: { type: Types.ObjectId, ref: 'Company' }, // flagged as a possible duplicate of this company, until a person decides
+    duplicateReason: String,
+    notDuplicateOf: { type: [Types.ObjectId], default: [] }, // a person said "not a duplicate"; never flag this pair again
     lockedFields: { type: [String], default: [] }, // set by saveWithHistory when a person edits a field
     // Denormalised from contacts so the list can filter/sort without joins. Kept fresh by refreshContactStats().
     contactsCount: { type: Number, default: 0 },
@@ -140,6 +141,7 @@ const emailSchema = new Schema(
     address: { type: String, required: true, lowercase: true, trim: true },
     type: { type: String, enum: ['business', 'generic'] },
     provider: String,
+    providerStatus: String, // what the provider said (e.g. ContactOut "Verified"); not our own verification
     capturedAt: { type: Date, default: Date.now },
     verification: {
       status: { type: String, enum: EMAIL_STATUSES, default: 'not_checked' },
@@ -236,6 +238,16 @@ export const Suppression = model(
     reason: String,
     at: { type: Date, default: Date.now },
   }),
+);
+
+// ---------- paid-provider usage (hard monthly caps, so nothing can overspend) ----------
+export const Usage = model(
+  'Usage',
+  new Schema({
+    provider: { type: String, required: true },
+    period: { type: String, required: true }, // "2026-11"
+    count: { type: Number, default: 0 },
+  }).index({ provider: 1, period: 1 }, { unique: true }),
 );
 
 // ---------- export log ----------

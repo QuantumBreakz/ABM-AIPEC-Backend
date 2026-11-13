@@ -9,13 +9,19 @@ import { pinoHttp } from 'pino-http';
 import { requireAuth, requireRole } from './lib/auth.js';
 import { errorHandler, notFoundHandler } from './lib/errors.js';
 import { log } from './lib/logger.js';
+import { companyAiRoutes, contactAiRoutes } from './routes/ai.js';
 import { authRoutes } from './routes/auth.js';
 import { companiesRoutes } from './routes/companies.js';
+import { companyContactsRoutes, contactsRoutes } from './routes/contacts.js';
 import { eventsRoutes } from './routes/events.js';
+import { exportsRoutes } from './routes/exports.js';
+import { reviewRoutes } from './routes/review.js';
 import { runsRoutes } from './routes/runs.js';
-import { statsRoutes } from './routes/stats.js';
+import { settingsRoutes, suppressionsRoutes } from './routes/settings.js';
+import { reportsRoutes, statsRoutes } from './routes/stats.js';
 import { systemRoutes } from './routes/system.js';
 import { usersRoutes } from './routes/users.js';
+import { verificationRoutes } from './routes/verification.js';
 
 export const app = express();
 
@@ -38,7 +44,17 @@ app.use('/users', requireRole('admin'), usersRoutes);
 app.use('/events', eventsRoutes);
 app.use('/runs', runsRoutes);
 app.use('/companies', companiesRoutes);
+app.use('/companies', companyContactsRoutes);
+app.use('/companies', companyAiRoutes);
+app.use('/contacts', contactsRoutes);
+app.use('/contacts', contactAiRoutes);
+app.use('/review', reviewRoutes);
+app.use('/exports', exportsRoutes);
+app.use('/verification', verificationRoutes);
+app.use('/settings', settingsRoutes);
+app.use('/suppressions', suppressionsRoutes);
 app.use('/stats', statsRoutes);
+app.use('/reports', reportsRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

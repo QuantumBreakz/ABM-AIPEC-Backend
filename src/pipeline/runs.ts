@@ -6,22 +6,37 @@ import type { Job } from 'bullmq';
 import type { StepKey, StepStatus } from '../contract.js';
 import { setStep } from '../db/helpers.js';
 import type { RunSummary } from '../db/mappers.js';
-import { Company, Event, Run, type RunDoc } from '../db/models.js';
-import { conflict, notFound } from '../lib/errors.js';
+import { Company, Contact, Event, Run, type RunDoc, STEPS } from '../db/models.js';
+import { badRequest, conflict } from '../lib/errors.js';
 import { log } from '../lib/logger.js';
+import { AI_REASON } from '../providers/llm.js';
 import { enqueue, handlers, isStep, type JobData, pauseAll, type QueueName, requeue, resumeAll } from './queue.js';
+import { afterResearch } from './research.js';
+import { needsCheckFilter } from './steps/verification.js';
 
-/** What a run can include, in pipeline order. Sales Navigator steps are manual, verification is a separate batch. */
-export const RUN_STEPS = ['directory', 'profile', 'website', 'emails', 'personalization'] as const;
+/**
+ * What a run can include, in pipeline order: the directory plus every company step (as the frontend offers them).
+ * Not all of them queue work: `social` happens inside `website`, `account`/`people` are done by a person,
+ * and `verification` is its own batch. Including them still shows their progress on the run.
+ */
+export const RUN_STEPS = ['directory', ...STEPS] as const;
 export type RunStep = (typeof RUN_STEPS)[number];
-const COMPANY_ORDER: RunStep[] = ['profile', 'website', 'emails', 'personalization'];
+/** The per-company chain. `emails` isn't in it: it runs when contacts are added (or when a run asks for it). */
+const COMPANY_ORDER: QueueName[] = ['profile', 'website', 'personalization'];
 
 export const activeRun = () => Run.findOne({ status: { $in: ['running', 'paused'] } }).lean();
 
 export async function startRun(edition: number, steps: RunStep[] | undefined, by: string) {
-  if (!(await Event.exists({ edition }))) throw notFound(`No event for edition ${edition}. Create it first.`);
+  if (!(await Event.exists({ edition }))) throw badRequest(`Pick an edition that exists (no event for ${edition} yet).`);
   const running = await activeRun();
-  if (running) throw conflict('A run is already in progress. Pause or wait for it to finish.', { runId: String(running._id) });
+  if (running) {
+    // Only one active run: the queues are shared, so a paused run would also hold up a new one.
+    const msg =
+      running.status === 'paused'
+        ? 'A paused run exists. Resume it (or let it finish) before starting another.'
+        : 'A run is already in progress. Pause or wait for it to finish.';
+    throw conflict(msg, { runId: String(running._id) });
+  }
 
   const chosen = RUN_STEPS.filter((s) => !steps || steps.includes(s));
   const run = await Run.create({ edition, steps: chosen, startedBy: by });
@@ -30,11 +45,25 @@ export async function startRun(edition: number, steps: RunStep[] | undefined, by
   if (chosen.includes('directory')) {
     await enqueue('directory', { runId });
   } else {
-    // Re-running later steps only: start at the first chosen step for every company in the edition.
+    // Re-running later steps only: start at the first chosen chain step for every company in the edition.
     const first = COMPANY_ORDER.find((s) => chosen.includes(s) && handlers[s]);
     if (first) {
       const ids = await Company.find({ 'editions.edition': edition }, { _id: 1 }).lean();
       for (const { _id } of ids) await enqueue(first, { companyId: String(_id), runId });
+    }
+    // Email lookup only makes sense where there are contacts.
+    if (chosen.includes('emails') && handlers.emails) {
+      const ids = await Company.find({ 'editions.edition': edition, contactsCount: { $gt: 0 } }, { _id: 1 }).lean();
+      for (const { _id } of ids) await enqueue('emails', { companyId: String(_id), runId });
+    }
+    // Email check (the batch after the initial CSV): companies with emails never checked, or checked > 30 days ago.
+    if (chosen.includes('verification') && handlers.verification) {
+      const withStale = await Contact.distinct('company', needsCheckFilter());
+      const ids = await Company.find(
+        { 'editions.edition': edition, $or: [{ emailStatuses: 'not_checked' }, { _id: { $in: withStale } }] },
+        { _id: 1 },
+      ).lean();
+      for (const { _id } of ids) await enqueue('verification', { companyId: String(_id), runId });
     }
   }
   await maybeFinishRun(runId);
@@ -52,14 +81,23 @@ export async function resumeRun(id: string) {
   const run = await Run.findOneAndUpdate({ _id: id, status: 'paused' }, { status: 'running' }, { returnDocument: 'after' }).lean();
   if (!run) throw conflict('Only a paused run can be resumed');
   await resumeAll();
-  return run;
+  // Nothing may be left to do (e.g. it was paused right at the end): finish it now instead of waiting for a job.
+  await maybeFinishRun(String(run._id));
+  return (await Run.findById(run._id).lean())!;
 }
 
-/** Queue the next step for a company: the next one in pipeline order that this run includes and that exists yet. */
+/**
+ * Called when a company finishes a step (success or failure). Runs the follow-ups that always apply,
+ * then queues the next step in pipeline order that this run includes and that exists yet.
+ */
 export async function continueAfter(step: RunStep, companyId: string, runId?: string) {
+  if (step === 'website') await afterResearch(companyId); // duplicate check + Sales Navigator hand-off, run or no run
   const run = runId ? await Run.findById(runId, { steps: 1, status: 1 }).lean() : null;
   if (!run || run.status === 'completed' || run.status === 'failed') return;
-  const next = COMPANY_ORDER.slice(COMPANY_ORDER.indexOf(step as RunStep) + 1).find((s) => run.steps.includes(s));
+  // `directory` starts the chain; a step outside the chain (e.g. emails) has nothing after it.
+  const i = step === 'directory' ? -1 : COMPANY_ORDER.indexOf(step as QueueName);
+  if (step !== 'directory' && i === -1) return;
+  const next = COMPANY_ORDER.slice(i + 1).find((s) => run.steps.includes(s));
   if (next && handlers[next]) await enqueue(next, { companyId, runId });
 }
 
@@ -164,6 +202,10 @@ export async function requeueUnfinished() {
     for (const { _id } of ids) await requeue(name, { companyId: String(_id), runId });
     count += ids.length;
   }
+  // Contact drafts someone asked to regenerate (they don't show on the company step).
+  const drafting = await Contact.find({ 'ai.status': 'pending', 'ai.reason': AI_REASON.generating }, { company: 1 }).lean();
+  for (const c of drafting) await requeue('personalization', { companyId: String(c.company), contactId: String(c._id), force: true });
+  count += drafting.length;
   if (run?.steps.includes('directory') && !run.directoryDone) {
     await requeue('directory', { runId });
     count++;

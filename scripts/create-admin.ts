@@ -22,7 +22,7 @@ const output = new Writable({
 const rl = createInterface({ input: process.stdin, output, terminal: !!process.stdin.isTTY });
 const email = (process.argv[2] ?? (await rl.question('Admin email: '))).trim().toLowerCase();
 
-process.stdout.write('Password (min 10 chars, hidden): ');
+process.stdout.write('Password (min 8 chars, hidden): ');
 muted = true;
 const password = await rl.question('');
 muted = false;
@@ -34,7 +34,7 @@ const fail = (msg: string) => {
   process.exit(1);
 };
 if (!/^\S+@\S+\.\S+$/.test(email)) fail('That is not an email address.');
-if (password.length < 10) fail('Password must be at least 10 characters.');
+if (password.length < 8) fail('Password must be at least 8 characters.');
 
 await mongoose.connect(env.MONGO_URL);
 await User.updateOne({ email }, { $set: { role: 'admin', passwordHash: await bcrypt.hash(password, 12) } }, { upsert: true });
