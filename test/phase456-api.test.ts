@@ -191,9 +191,12 @@ describe('exports', () => {
     const text = r.body as string;
     expect(text.startsWith('﻿')).toBe(true);
     const lines = csvOf(text);
-    expect(lines[0]).toBe(
-      'Company ID,Company,Domain,Website,ADIPEC Profile URL,LinkedIn Company,Contact ID,First Name,Last Name,Title,Profile URL,Email,Email Verification Status,Verification Date,Contact Source,Hyper-Personalization,Subject Line,Email Draft,LinkedIn Draft,Evidence URLs,AI Status',
-    );
+    // The frontend mock's columns come first, in order; PTC-required extras follow.
+    expect(
+      lines[0].startsWith(
+        'Company ID,Company,Domain,Website,ADIPEC Profile URL,LinkedIn Company,Contact ID,First Name,Last Name,Title,Profile URL,Email,Email Verification Status,Verification Date,Contact Source,Hyper-Personalization,Subject Line,Email Draft,LinkedIn Draft,Evidence URLs,AI Status,',
+      ),
+    ).toBe(true);
     expect(lines).toHaveLength(3); // header + Sam + Bare Co (company-only row)
     expect(lines.find((l) => l.includes('Sam'))).toContain('sam@good.example,not_checked,');
     expect(text).not.toContain('optout.example');

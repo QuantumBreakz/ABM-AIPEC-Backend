@@ -19,6 +19,7 @@ import { toCompany } from '../db/mappers.js';
 import { Company, Contact, EXPORT_KINDS, ExportLog, Suppression } from '../db/models.js';
 import { BOM, type Cell, csvLine } from '../lib/csv.js';
 import { badRequest } from '../lib/errors.js';
+import { normalizeName } from '../lib/normalize.js';
 import { companyFiltersSchema, companyQuery, SORT } from './companies.js';
 import { paging } from './paging.js';
 
@@ -104,7 +105,47 @@ const OUTREACH_COLUMNS = [
   'Evidence URLs',
   'AI Status',
 ];
-const HEADERS: Record<ExportKind, string[]> = { companies: COMPANY_COLUMNS, contacts: CONTACT_COLUMNS, outreach: OUTREACH_COLUMNS };
+// Columns the PTC requires (§5.1, §6.1–6.3) beyond the frontend mock's set. Added at the end so the mock's
+// columns keep their positions.
+const COMPANY_EXTRA = [
+  'Normalized Name',
+  'Directory Capture Date',
+  'Reviewed Pages',
+  'Unread Pages',
+  'Sales Navigator Account',
+  'Account Match Confidence',
+  'Leadership Coverage',
+  'Contacts Count',
+  'AI Research Summary',
+  'Observed Signal',
+  'Signal URL',
+  'Opportunity Hypothesis',
+  'AI Status',
+  'AI Review Notes',
+  'AI Approved At',
+];
+const CONTACT_EXTRA = ['Leadership Coverage', 'Contact AI Status'];
+const OUTREACH_EXTRA = [
+  'Research Summary',
+  'Observed Signal',
+  'Signal URL',
+  'Opportunity Hypothesis',
+  'Other Social Links',
+  'Sales Navigator Account',
+  'Leadership Coverage',
+  'Seniority',
+  'Email Type',
+  'Email Source',
+  'Email Captured',
+  'Verification Source',
+  'AI Review Notes',
+  'AI Approved At',
+];
+const HEADERS: Record<ExportKind, string[]> = {
+  companies: [...COMPANY_COLUMNS, ...COMPANY_EXTRA],
+  contacts: [...CONTACT_COLUMNS, ...CONTACT_EXTRA],
+  outreach: [...OUTREACH_COLUMNS, ...OUTREACH_EXTRA],
+};
 
 const join = (xs?: (string | number)[]) => (xs ?? []).join(' | ');
 /** The approved copy wins over the latest draft. */
@@ -116,6 +157,10 @@ function* rowsFor(kind: ExportKind, c: CompanyT, version: Version, blocked: Set<
   const ok = (address: string) => !blocked.has(address) && !blocked.has(address.split('@')[1]);
   const status = (real: string) => (version === 'initial' ? 'not_checked' : real);
   const hp = approvedOr(c.ai as never, 'hyperPersonalization');
+  const companyAi = ['summary', 'signal', 'signalUrl', 'hypothesis'].map((k) => approvedOr(c.ai as never, k));
+  const otherSocials = join(
+    [c.socials.facebook, c.socials.instagram, c.socials.x, c.socials.youtube, ...c.socials.other].filter((x): x is string => !!x),
+  );
 
   if (kind === 'companies') {
     const s = c.stages;
@@ -153,6 +198,19 @@ function* rowsFor(kind: ExportKind, c: CompanyT, version: Version, blocked: Set<
       hp,
       join(c.ai.evidenceUrls),
       c.updatedAt,
+      // extras
+      normalizeName(c.name),
+      e0?.capturedAt,
+      join(c.website.pagesReviewed.map((p) => p.url)),
+      join(c.website.skipped.map((p) => `${p.url} (${p.reason})`)),
+      c.salesNav.accountUrl,
+      c.salesNav.matchConfidence,
+      c.leadershipCoverage,
+      c.contactsCount,
+      ...companyAi,
+      c.ai.status,
+      c.ai.reason,
+      c.ai.approved?.at,
     ];
     return;
   }
@@ -180,6 +238,9 @@ function* rowsFor(kind: ExportKind, c: CompanyT, version: Version, blocked: Set<
           e ? status(e.verification.status) : undefined,
           e && version === 'final' ? e.verification.checkedAt : undefined,
           e && version === 'final' ? e.verification.source : undefined,
+          // extras
+          c.leadershipCoverage,
+          p.ai.status,
         ];
       }
     }
@@ -189,7 +250,24 @@ function* rowsFor(kind: ExportKind, c: CompanyT, version: Version, blocked: Set<
   // outreach
   const head: Cell[] = [c.id, c.name, c.domain, c.website.url, e0?.profileUrl, c.socials.linkedin];
   if (!c.contacts.length) {
-    yield [...head, ...Array(9).fill(undefined), hp, undefined, undefined, undefined, join(c.ai.evidenceUrls), c.ai.status];
+    yield [
+      ...head,
+      ...Array(9).fill(undefined),
+      hp,
+      undefined,
+      undefined,
+      undefined,
+      join(c.ai.evidenceUrls),
+      c.ai.status,
+      // extras
+      ...companyAi,
+      otherSocials,
+      c.salesNav.accountUrl,
+      c.leadershipCoverage,
+      ...Array(5).fill(undefined), // seniority, email type, email source, captured, verification source
+      c.ai.reason,
+      c.ai.approved?.at,
+    ];
     return;
   }
   for (const p of c.contacts) {
@@ -212,6 +290,18 @@ function* rowsFor(kind: ExportKind, c: CompanyT, version: Version, blocked: Set<
       ai('linkedinDraft'),
       join([...c.ai.evidenceUrls, ...p.ai.evidenceUrls]),
       p.ai.status,
+      // extras
+      ...companyAi,
+      otherSocials,
+      c.salesNav.accountUrl,
+      c.leadershipCoverage,
+      p.seniority,
+      e?.type,
+      e?.provider,
+      e?.capturedAt,
+      e && version === 'final' ? e.verification.source : undefined,
+      p.ai.reason,
+      p.ai.approved?.at,
     ];
   }
 }
