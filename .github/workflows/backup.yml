@@ -1,0 +1,30 @@
+# Weekly encrypted backup of the Atlas database (Atlas M0 has no backups of its own).
+# The repo is public, so the dump is encrypted with `age` before it is stored as a workflow artifact:
+# only the holder of the private key can read it. Restore steps: docs/runbook.md → Backups.
+#
+# Turn on: repo variable BACKUP_ENABLED=true, secrets MONGO_URL (Atlas) and BACKUP_AGE_PUBLIC_KEY (age1…).
+name: backup
+on:
+  schedule: [{ cron: "0 3 * * 1" }] # Mondays 03:00 UTC
+  workflow_dispatch:
+
+jobs:
+  dump:
+    if: vars.BACKUP_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install age
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq age
+      - name: Dump and encrypt (never written to disk unencrypted)
+        env:
+          MONGO_URL: ${{ secrets.MONGO_URL }}
+          AGE_RECIPIENT: ${{ secrets.BACKUP_AGE_PUBLIC_KEY }}
+        run: |
+          docker run --rm -e MONGO_URL mongo:7 sh -c 'mongodump --uri="$MONGO_URL" --archive --gzip' \
+            | age -r "$AGE_RECIPIENT" > "adipec-$(date -u +%Y-%m-%d).archive.gz.age"
+          ls -lh *.age
+      - uses: actions/upload-artifact@v4
+        with:
+          name: adipec-backup-${{ github.run_id }}
+          path: "*.age"
+          retention-days: 90

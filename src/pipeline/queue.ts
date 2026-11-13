@@ -16,7 +16,8 @@ import { log } from '../lib/logger.js';
 
 export const QUEUES = ['directory', 'profile', 'website', 'emails', 'personalization', 'verification'] as const;
 export type QueueName = (typeof QUEUES)[number];
-export type JobData = { runId?: string; companyId?: string; contactId?: string };
+/** `contactId` narrows a job to one contact; `force` re-does work a normal run would skip (e.g. "regenerate"). */
+export type JobData = { runId?: string; companyId?: string; contactId?: string; force?: boolean };
 export type Handler = (job: Job<JobData>) => Promise<void>;
 
 /** Filled in pipeline/index.ts as steps get built. A queue without a handler has no worker. */
@@ -41,7 +42,8 @@ export const isStep = (name: string): name is StepKey => (STEPS as readonly stri
 
 /** Same step + same company (or run) = same job id, so queueing twice is a no-op. Ids can't contain ':'. */
 export async function enqueue(name: QueueName, data: JobData) {
-  if (data.companyId && isStep(name)) await setStep(data.companyId, name, 'in_progress', 'queued');
+  // Company-level jobs show as in progress on the company; a contact-only job leaves the company's step alone.
+  if (data.companyId && !data.contactId && isStep(name)) await setStep(data.companyId, name, 'in_progress', 'queued');
   const key = data.contactId ?? data.companyId ?? data.runId;
   await queues[name].add(name, data, key ? { jobId: `${name}-${key}` } : {});
 }
@@ -63,7 +65,9 @@ export type JobHooks = {
 // ponytail: Render free is 0.1 CPU / 512 MB, so 2 jobs at a time per queue. Raise on a paid plan.
 export function startWorkers(hooks: JobHooks) {
   return (Object.entries(handlers) as [QueueName, Handler][]).map(([name, handler]) => {
-    const w = new Worker<JobData>(name, handler, { connection: redis, prefix: PREFIX, concurrency: 2 });
+    // The AI worker is also throttled to LLM_RPM jobs a minute, so a big run never trips the provider's limits.
+    const limiter = name === 'personalization' ? { limiter: { max: env.LLM_RPM, duration: 60_000 } } : {};
+    const w = new Worker<JobData>(name, handler, { connection: redis, prefix: PREFIX, concurrency: 2, ...limiter });
     w.on('completed', (job) => hooks.onDone(name, job).catch((e) => log.error({ err: e }, 'onDone hook failed')));
     w.on('failed', (job, err) => {
       if (!job) return;

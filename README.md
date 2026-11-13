@@ -2,7 +2,9 @@
 
 API + background workers for the ADIPEC lead-generation system. The full plan and ticket list are in [PLAN.md](PLAN.md). This file explains **how the code works** and **how to run it**.
 
-Status: **Phases 0–3 are built** (foundations, exhibitors, company research, people) and **checked against the real frontend**. See [docs/frontend-integration.md](docs/frontend-integration.md) for what was aligned. AI drafts and exports come next (Phase 4).
+Status: **All six phases are built**: foundations, exhibitors, company research, people, AI drafts + exports, email verification, gap report, backups. Checked against the real frontend ([docs/frontend-integration.md](docs/frontend-integration.md)). What's left needs people, not code: the decisions in PLAN.md and the real sample run ([docs/acceptance.md](docs/acceptance.md)).
+
+Other docs: [runbook](docs/runbook.md) (deploy, operate, fix, back up, security checklist) · [cost declaration](docs/cost-declaration.md) · [ADIPEC source](docs/adipec-source.md).
 
 ---
 
@@ -57,6 +59,22 @@ Three ideas run through everything:
    - **Sales Navigator hand-off:** `account` and `people` become `pending_access` — *"Waiting for Sales Navigator review"*. A person does that part (NFR-07).
 6. When nothing in the run is still `in_progress`, the run is marked `completed`.
 
+## AI drafts, exports and the email check (Phases 4–5)
+
+- **AI drafts** (`src/pipeline/steps/personalization.ts`, Claude via Anthropic's SDK, off without `LLM_API_KEY`):
+  - **Company level:** summary, signal + its source link, hypothesis, hyper-personalization. **Contact level:** subject, email draft, LinkedIn draft.
+  - **Facts only:** the model sees only website facts we saved, numbered F1, F2…, and must cite them. The signal's link always comes from our stored fact.
+  - **Checks:** every answer is checked for forbidden claims (met at ADIPEC, earlier talks, partnership, "you showed interest") and for a hypothesis stated as fact. One retry with the reasons, then it's marked *insufficient evidence* instead of being saved.
+  - **Review:** reviewers save / approve / reject / regenerate (`/companies/:id/ai`, `/contacts/:id/ai`), and the approved copy never changes except by approving again.
+- **Exports** (`src/routes/exports.ts`):
+  - **Files:** companies, contacts and outreach CSVs, with the frontend's exact column names. UTF-8 BOM + CRLF for Excel, formula-safe, opted-out emails left out, streamed.
+  - **Versions:** `initial` shows every email as *not_checked*; `final` carries the check results and dates. Every download is logged.
+- **Email check** (`src/pipeline/steps/verification.ts`): a run with the single step `verification` (`POST /verification/run`, or nightly via cron).
+  - **With MillionVerifier:** ok → verified, catch-all/disposable → risky.
+  - **Without it:** a free MX check that can only say invalid or unknown.
+  - Each email gets a status, a date and a source. Monthly caps on both paid providers.
+- **Gap report** (`/reports/gap`, `/reports/gap.csv`): advertised vs discovered, researched, contacts, emails checked, drafts done, and every blocked step with its reason.
+
 ## What people do (Phase 3)
 
 1. Open the **review queue** (`GET /review?type=salesnav`), click the Sales Navigator link (`salesNav.searchUrl`), find the account and the decision-makers.
@@ -93,7 +111,7 @@ src/
     logger.ts           pino (JSON in prod, pretty locally, secrets redacted)
   sources/adipec.ts     everything specific to adipec.com: URLs + pure parsing functions
   sources/website.ts    reading any company website: page picking, summary, offerings, facts, mailboxes, socials
-  providers/contactout.ts  ContactOut work-email lookup + monthly cap (off without a key)
+  providers/            contactout.ts, millionverifier.ts, mx.ts, llm.ts (Claude), usage.ts (monthly caps). Paid ones are off without a key
   pipeline/
     queue.ts            BullMQ queues, enqueue(), workers, pause/resume
     runs.ts             start/pause/resume runs, step chaining, counts, failure handling, requeue on boot
@@ -115,7 +133,9 @@ docs/adipec-source.md   what we learned about the ADIPEC site
 | Companies | `GET /companies` (all filters), `GET /companies/:id`, `PATCH /companies/:id`, `POST /companies/:id/steps/:step`, `POST /companies/:id/merge`, `POST /companies/:id/not-duplicate`, `GET /companies/:id/history` |
 | Contacts | `POST /companies/:id/contacts`, `POST /companies/:id/contacts/import`, `PATCH /contacts/:id` |
 | Review | `GET /review/counts`, `GET /review?type=website\|duplicate\|salesnav\|contacts\|emails\|ai` |
-| Admin | `/users` CRUD, `/suppressions` CRUD, `POST /events`, `POST /runs`, `POST /runs/:id/pause`, `POST /runs/:id/resume`, `DELETE /companies/:id`, `DELETE /contacts/:id` |
+| AI | `POST /companies/:id/ai/regenerate`, `PATCH /companies/:id/ai`, `POST /contacts/:id/ai/regenerate`, `PATCH /contacts/:id/ai` |
+| Exports & reports | `GET /exports/:kind/count`, `GET /exports/:kind.csv?version=initial\|final`, `GET /exports/log`, `GET /reports/gap`, `GET /reports/gap.csv` |
+| Admin | `/users` CRUD, `/suppressions` CRUD, `POST /events`, `POST /runs`, `POST /runs/:id/pause`, `POST /runs/:id/resume`, `POST /verification/run`, `DELETE /companies/:id`, `DELETE /contacts/:id` |
 
 Everything follows the contract in PLAN.md: error shape, paging, field names.
 

@@ -10,8 +10,9 @@
  * Every lookup takes one unit from a hard monthly cap (CONTACTOUT_MAX_LOOKUPS), tracked in Mongo,
  * so a bug or a big run can't spend more than the cap.
  */
-import { Usage } from '../db/models.js';
+
 import { env } from '../env.js';
+import { takeUsage } from './usage.js';
 
 export const contactoutEnabled = () => !!env.CONTACTOUT_API_KEY;
 
@@ -22,22 +23,7 @@ const LINKEDIN_PROFILE = /^https?:\/\/([a-z]{2,3}\.)?linkedin\.com\/(in|pub)\//i
 export const isLinkedInProfile = (url?: string | null) => !!url && LINKEDIN_PROFILE.test(url);
 
 /** Take one lookup from this month's budget. False = budget used up. */
-export async function takeLookup(): Promise<boolean> {
-  const max = env.CONTACTOUT_MAX_LOOKUPS;
-  if (max <= 0) return false;
-  const period = new Date().toISOString().slice(0, 7);
-  try {
-    const doc = await Usage.findOneAndUpdate(
-      { provider: 'contactout', period, count: { $lt: max } },
-      { $inc: { count: 1 } },
-      { upsert: true, returnDocument: 'after' },
-    ).lean();
-    return !!doc;
-  } catch (e: any) {
-    if (e?.code === 11000) return false; // this month's doc exists and is at the cap, so the upsert collided
-    throw e;
-  }
-}
+export const takeLookup = () => takeUsage('contactout', env.CONTACTOUT_MAX_LOOKUPS);
 
 export type FoundEmail = { address: string; status?: string };
 

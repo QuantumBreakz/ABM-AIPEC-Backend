@@ -6,9 +6,10 @@ import type { Job } from 'bullmq';
 import type { StepKey, StepStatus } from '../contract.js';
 import { setStep } from '../db/helpers.js';
 import type { RunSummary } from '../db/mappers.js';
-import { Company, Event, Run, type RunDoc, STEPS } from '../db/models.js';
+import { Company, Contact, Event, Run, type RunDoc, STEPS } from '../db/models.js';
 import { badRequest, conflict } from '../lib/errors.js';
 import { log } from '../lib/logger.js';
+import { AI_REASON } from '../providers/llm.js';
 import { enqueue, handlers, isStep, type JobData, pauseAll, type QueueName, requeue, resumeAll } from './queue.js';
 import { afterResearch } from './research.js';
 
@@ -53,6 +54,11 @@ export async function startRun(edition: number, steps: RunStep[] | undefined, by
     if (chosen.includes('emails') && handlers.emails) {
       const ids = await Company.find({ 'editions.edition': edition, contactsCount: { $gt: 0 } }, { _id: 1 }).lean();
       for (const { _id } of ids) await enqueue('emails', { companyId: String(_id), runId });
+    }
+    // Email check (the batch after the initial CSV): companies with emails not checked yet.
+    if (chosen.includes('verification') && handlers.verification) {
+      const ids = await Company.find({ 'editions.edition': edition, emailStatuses: 'not_checked' }, { _id: 1 }).lean();
+      for (const { _id } of ids) await enqueue('verification', { companyId: String(_id), runId });
     }
   }
   await maybeFinishRun(runId);
@@ -191,6 +197,10 @@ export async function requeueUnfinished() {
     for (const { _id } of ids) await requeue(name, { companyId: String(_id), runId });
     count += ids.length;
   }
+  // Contact drafts someone asked to regenerate (they don't show on the company step).
+  const drafting = await Contact.find({ 'ai.status': 'pending', 'ai.reason': AI_REASON.generating }, { company: 1 }).lean();
+  for (const c of drafting) await requeue('personalization', { companyId: String(c.company), contactId: String(c._id), force: true });
+  count += drafting.length;
   if (run?.steps.includes('directory') && !run.directoryDone) {
     await requeue('directory', { runId });
     count++;

@@ -45,6 +45,32 @@ export function toListItem(doc: CompanyDoc, emailCounts: C.CompanyListItem['emai
   };
 }
 
+const versions = (vs?: unknown[] | null) => (vs ?? []).map(aiVersion).filter((v): v is C.AiVersion => !!v);
+
+export const toCompanyAi = (ai: CompanyDoc['ai'] | undefined): C.CompanyAi => ({
+  status: ai?.status ?? 'pending',
+  reason: str(ai?.reason),
+  summary: str(ai?.summary),
+  signal: str(ai?.signal),
+  signalUrl: str(ai?.signalUrl),
+  hypothesis: str(ai?.hypothesis),
+  hyperPersonalization: str(ai?.hyperPersonalization),
+  evidenceUrls: ai?.evidenceUrls ?? [],
+  approved: aiVersion(ai?.approved),
+  versions: versions(ai?.versions),
+});
+
+export const toContactAi = (ai: ContactDoc['ai'] | undefined): C.ContactAi => ({
+  status: ai?.status ?? 'pending',
+  reason: str(ai?.reason),
+  subject: str(ai?.subject),
+  draft: str(ai?.draft),
+  linkedinDraft: str(ai?.linkedinDraft),
+  evidenceUrls: ai?.evidenceUrls ?? [],
+  approved: aiVersion(ai?.approved),
+  versions: versions(ai?.versions),
+});
+
 export function toContact(c: ContactDoc): C.Contact {
   return {
     id: String(c._id),
@@ -68,16 +94,7 @@ export function toContact(c: ContactDoc): C.Contact {
         source: str(e.verification?.source),
       },
     })),
-    ai: {
-      status: c.ai?.status ?? 'pending',
-      reason: str(c.ai?.reason),
-      subject: str(c.ai?.subject),
-      draft: str(c.ai?.draft),
-      linkedinDraft: str(c.ai?.linkedinDraft),
-      evidenceUrls: c.ai?.evidenceUrls ?? [],
-      approved: aiVersion(c.ai?.approved),
-      versions: (c.ai?.versions ?? []).map(aiVersion).filter((v): v is C.AiVersion => !!v),
-    },
+    ai: toContactAi(c.ai),
     createdAt: iso(c.createdAt)!,
     updatedAt: iso(c.updatedAt)!,
   };
@@ -140,18 +157,7 @@ export function toCompany(doc: CompanyDoc, contacts: ContactDoc[]): C.Company {
     },
     leadershipCoverage: doc.leadershipCoverage ?? 'unknown',
     lockedFields: doc.lockedFields ?? [],
-    ai: {
-      status: doc.ai?.status ?? 'pending',
-      reason: str(doc.ai?.reason),
-      summary: str(doc.ai?.summary),
-      signal: str(doc.ai?.signal),
-      signalUrl: str(doc.ai?.signalUrl),
-      hypothesis: str(doc.ai?.hypothesis),
-      hyperPersonalization: str(doc.ai?.hyperPersonalization),
-      evidenceUrls: doc.ai?.evidenceUrls ?? [],
-      approved: aiVersion(doc.ai?.approved),
-      versions: (doc.ai?.versions ?? []).map(aiVersion).filter((v): v is C.AiVersion => !!v),
-    },
+    ai: toCompanyAi(doc.ai),
     contacts: contacts.map(toContact),
   };
 }

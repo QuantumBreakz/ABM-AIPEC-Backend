@@ -66,7 +66,7 @@ export function companyQuery(f: CompanyFilters): Filter {
   return and.length ? { $and: and } : {};
 }
 
-const SORT: Record<string, Record<string, 1 | -1>> = {
+export const SORT: Record<string, Record<string, 1 | -1>> = {
   name: { normalizedName: 1 },
   '-name': { normalizedName: -1 },
   updatedAt: { updatedAt: 1 },

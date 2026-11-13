@@ -8,7 +8,7 @@ on:
       task: { description: "Task name, e.g. refresh-websites", required: true }
   schedule:
     - cron: "0 2 * * 0"     # refresh-websites, weekly (Sunday 02:00 UTC)
-    # - cron: "0 1 * * *"   # verify-emails, nightly — turn on with BE-5.3
+    - cron: "0 1 * * *"     # verify-emails, nightly (01:00 UTC)
 
 jobs:
   run:

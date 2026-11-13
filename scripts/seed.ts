@@ -19,7 +19,7 @@ if (env.NODE_ENV === 'production') {
 }
 
 const EDITION = 2026;
-const WORKER_STEPS: string[] = ['profile', 'website', 'social', 'emails'];
+const WORKER_STEPS: string[] = ['profile', 'website', 'social', 'emails', 'personalization', 'verification'];
 const COUNT = 150;
 const words1 = ['Example', 'Sample', 'Demo', 'Placeholder', 'Testing', 'Mock'];
 const words2 = ['Drilling', 'Energy', 'Subsea', 'Pipeline', 'Valves', 'Robotics', 'Analytics', 'Coatings', 'Logistics', 'Marine'];

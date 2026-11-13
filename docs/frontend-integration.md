@@ -47,6 +47,22 @@ The real frontend (`VITE_API_MOCK=false`, Vite proxy → `localhost:4000`) again
 - Resume a paused run → completes ✔
 - No console errors besides the expected pre-login 401.
 
+## Phases 4–6 (built straight from the frontend's mocks)
+
+AI review (`src/mocks/handlers/ai.ts`), exports (`exports.ts`), verification and the gap report (`system.ts`, `stats.ts`) were built to the mock's rules from the start:
+- **Same AI keys and actions.** Regenerating without a model leaves the draft pending with the mock's exact reason. You can't approve without a draft (409), and the approved copy is kept when regenerating.
+- **History fields:** `ai.<action>` and `contact:<id>:ai.<action>`.
+- **Same export column names**, same `initial` vs `final` rules, BOM + CRLF, formula guard, filename `<kind>-<version>.csv`, and the export log.
+- **`POST /verification/run` starts a verification-only run.** Without MillionVerifier, emails get `unknown`/`invalid` with source `mx-check…`, and the step is `partial` with the mock's reason.
+- **Gap report** JSON and CSV are in the mock's format (`gap-report-<edition>.csv`).
+
+Small differences (additive, nothing to change):
+- `POST /verification/run` also returns `runId`, so the UI can open the run.
+- Contacts export leaves out opted-out emails (the mock never stores them in the first place).
+- Contact AI drafts don't change the company's personalization step, same as the mock.
+
+Re-checked on 13 Nov against `main` @ `510e08e` (now including FE-1.4 company detail): login, overview, companies and company detail (steps panel, ADIPEC tab with extra fields) all work on the real backend.
+
 ## Notes for Faseeh (frontend side, nothing blocking)
 
 1. **Step override dropdown** (FE-2.2): leave out `in_progress`. The backend refuses it (only the system queues work); the mock allows it.

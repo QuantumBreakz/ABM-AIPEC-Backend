@@ -20,6 +20,7 @@
     "create-admin": "tsx --env-file=.env scripts/create-admin.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0",
     "bcryptjs": "^3.0.3",
     "bullmq": "^6.7.5",
     "cheerio": "^1.2.0",

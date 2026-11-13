@@ -118,6 +118,7 @@ async function upsertContact(companyId: Types.ObjectId, input: Input, by: string
     const fields = Object.fromEntries(Object.entries(givenFields(input)).filter(([, v]) => v !== null));
     const c = await Contact.create({ ...fields, company: companyId, emails: newEmails([], input.emails, provider) });
     await logContact(companyId, c._id, null, fullName(c), by);
+    await queueIfReady('personalization', { companyId: String(companyId), contactId: String(c._id) }); // draft for the new person
     return { contact: c.toObject(), created: true, changed: true };
   }
   // Known person. A form overwrites what was typed in; an import only fills blanks (it never clobbers a reviewer's edits).
