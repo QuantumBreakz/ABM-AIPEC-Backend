@@ -100,7 +100,31 @@ describe('pure checks', () => {
   });
 });
 
+describe('made-up numbers (BE-4.3)', () => {
+  it('flags figures that appear nowhere in what the model was given', () => {
+    const pack = [{ id: 'F1', text: 'Runs twelve land rigs since 2004.', url: 'u' }];
+    expect(checkDraft(['Since 2004 they have grown fast.'], ['F1'], pack)).toEqual([]);
+    expect(checkDraft(['They cut costs by 40% across 1,200 wells.'], ['F1'], pack)).toEqual([
+      'uses numbers that aren’t in the facts (40, 1,200)',
+    ]);
+    expect(checkDraft(['Their 3P pumps impress.'], ['F1'], pack, { known: '3P Prinz' })).toEqual([]);
+  });
+});
+
 describe('personalization step', () => {
+  it('writes no draft for a contact who opted out (BE-4.2)', async () => {
+    const { Suppression } = await import('../src/db/models.js');
+    const { c, sam, kim } = await setup();
+    await Contact.updateOne({ _id: kim._id }, { emails: [{ address: 'kim@optout-ai.example', type: 'business' }] });
+    await Suppression.create({ value: 'optout-ai.example' });
+    answers.push(goodCompany, goodContact);
+    await personalizationStep(job({ companyId: String(c._id) }));
+    expect((await Contact.findById(kim._id).lean())?.ai).toMatchObject({ status: 'pending', reason: AI_REASON.optedOut });
+    expect((await Contact.findById(sam._id).lean())?.ai?.status).toBe('draft');
+    expect(calls).toHaveLength(2); // company + Sam only: Kim's details never went to the model
+    expect(calls.join(' ')).not.toContain('Kim');
+  });
+
   it('writes sourced company and contact drafts as new versions, ready for review', async () => {
     const { c, sam, kim } = await setup();
     answers.push(goodCompany, goodContact, goodContact);

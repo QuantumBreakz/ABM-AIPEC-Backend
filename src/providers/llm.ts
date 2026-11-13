@@ -21,6 +21,7 @@ export const AI_REASON = {
   noModel: 'No language model is available, so no draft was generated.',
   noFactsCompany: 'No sourced company fact is available to cite, so no draft was written.',
   noFactsContact: 'Not enough sourced facts about this company.',
+  optedOut: 'This person opted out, so no draft is written.',
 };
 
 /** Stops this draft and becomes its reason (not retried). */

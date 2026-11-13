@@ -16,6 +16,7 @@ import type { Job } from 'bullmq';
 import { z } from 'zod';
 import { setStep } from '../../db/helpers.js';
 import { Company, type CompanyDoc, Contact, type ContactDoc } from '../../db/models.js';
+import { suppressedOf } from '../../lib/suppression.js';
 import { AI_REASON, generateJson, LlmStop, llmEnabled } from '../../providers/llm.js';
 import type { JobData } from '../queue.js';
 import { continueAfter } from '../runs.js';
@@ -70,10 +71,24 @@ const BANNED: [RegExp, string][] = [
   [/\byou(r team)? (expressed|showed|shared|mentioned) (an )?interest\b/i, 'claims they showed interest'],
 ];
 
-/** Problems with a generated answer, in plain words. Empty = OK. */
-export function checkDraft(texts: string[], cited: string[], pack: PackFact[], opts: { hypothesis?: string } = {}): string[] {
+const NUMBER = /\d(?:[\d,.]*\d)?/g;
+const digitsOnly = (n: string) => n.replace(/[,.]/g, '');
+
+/**
+ * Problems with a generated answer, in plain words. Empty = OK.
+ * `known` is everything we gave the model; any number it writes must appear there (no made-up figures).
+ */
+export function checkDraft(
+  texts: string[],
+  cited: string[],
+  pack: PackFact[],
+  opts: { hypothesis?: string; known?: string } = {},
+): string[] {
   const problems = new Set<string>();
   for (const t of texts) for (const [re, why] of BANNED) if (re.test(t)) problems.add(why);
+  const known = new Set((`${opts.known ?? ''} ${pack.map((f) => f.text).join(' ')}`.match(NUMBER) ?? []).map(digitsOnly));
+  const invented = texts.flatMap((t) => t.match(NUMBER) ?? []).filter((n) => !known.has(digitsOnly(n)));
+  if (invented.length) problems.add(`uses numbers that aren’t in the facts (${[...new Set(invented)].join(', ')})`);
   const ids = new Set(pack.map((f) => f.id));
   if (!cited.some((c) => ids.has(c))) problems.add('cites none of the provided facts');
   if (opts.hypothesis !== undefined && !/\b(may|might|could|possibly|perhaps|likely)\b/i.test(opts.hypothesis)) {
@@ -81,6 +96,18 @@ export function checkDraft(texts: string[], cited: string[], pack: PackFact[], o
   }
   return [...problems];
 }
+
+/** Everything the model is shown about the company, as one string (used to spot made-up numbers). */
+const knownText = (company: CompanyDoc) => {
+  const latest = [...company.editions].sort((a, b) => b.edition - a.edition)[0];
+  return [
+    company.name,
+    latest?.description,
+    company.website?.summary,
+    ...(company.website?.services ?? []),
+    ...(company.website?.markets ?? []),
+  ].join(' ');
+};
 
 const prompt = (company: CompanyDoc, pack: PackFact[], extra = '') => {
   const latest = [...company.editions].sort((a, b) => b.edition - a.edition)[0];
@@ -127,6 +154,7 @@ function version(fields: Record<string, string>) {
 async function draftCompany(company: CompanyDoc, pack: PackFact[]) {
   const r = await generateChecked(COMPANY_SYSTEM, prompt(company, pack), companySchema, (o) =>
     checkDraft([o.summary, o.signal, o.hypothesis, o.hyperPersonalization], [o.signalFactId, ...o.citedFactIds], pack, {
+      known: knownText(company),
       hypothesis: o.hypothesis,
     }),
   );
@@ -163,7 +191,7 @@ async function draftCompany(company: CompanyDoc, pack: PackFact[]) {
 async function draftContact(company: CompanyDoc, contact: ContactDoc, pack: PackFact[]) {
   const person = `\n\nPerson: ${JSON.stringify({ firstName: contact.firstName, lastName: contact.lastName, title: contact.title ?? null, seniority: contact.seniority ?? null, hasProfileLink: !!contact.profileUrl })}`;
   const r = await generateChecked(CONTACT_SYSTEM, prompt(company, pack, person), contactSchema, (o) =>
-    checkDraft([o.subject, o.draft, o.linkedinDraft], o.citedFactIds, pack),
+    checkDraft([o.subject, o.draft, o.linkedinDraft], o.citedFactIds, pack, { known: `${knownText(company)} ${contact.title ?? ''}` }),
   );
   if ('problems' in r) {
     await Contact.updateOne(
@@ -206,8 +234,12 @@ export async function personalizationStep(job: Job<JobData>) {
   const id = String(company._id);
   const companyLevel = !contactId;
   const people = await Contact.find(contactId ? { _id: contactId, company: company._id } : { company: company._id }).lean();
-  // A normal run leaves approved drafts alone; "regenerate" (force) always writes a new version.
-  const todo = people.filter((p) => force || p.ai?.status !== 'approved');
+  // Opted-out people get no draft (PTC §8.2). A normal run also leaves approved drafts alone;
+  // "regenerate" (force) always writes a new version.
+  const blocked = await suppressedOf(people.flatMap((p) => p.emails.map((e) => e.address)));
+  const optedOut = people.filter((p) => p.emails.some((e) => blocked.has(e.address)));
+  if (optedOut.length) await setContactsAi({ _id: { $in: optedOut.map((p) => p._id) } }, 'pending', AI_REASON.optedOut);
+  const todo = people.filter((p) => !optedOut.includes(p) && (force || p.ai?.status !== 'approved'));
 
   const finish = async (status: 'needs_review' | 'pending_access', reason: string) => {
     if (!companyLevel) return;
