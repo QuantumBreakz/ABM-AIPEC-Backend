@@ -10,11 +10,13 @@ import { Company, Event, Run, type RunDoc } from '../db/models.js';
 import { conflict, notFound } from '../lib/errors.js';
 import { log } from '../lib/logger.js';
 import { enqueue, handlers, isStep, type JobData, pauseAll, type QueueName, requeue, resumeAll } from './queue.js';
+import { afterResearch } from './research.js';
 
 /** What a run can include, in pipeline order. Sales Navigator steps are manual, verification is a separate batch. */
 export const RUN_STEPS = ['directory', 'profile', 'website', 'emails', 'personalization'] as const;
 export type RunStep = (typeof RUN_STEPS)[number];
-const COMPANY_ORDER: RunStep[] = ['profile', 'website', 'emails', 'personalization'];
+/** The per-company chain. `emails` isn't in it: it runs when contacts are added (or when a run asks for it). */
+const COMPANY_ORDER: RunStep[] = ['profile', 'website', 'personalization'];
 
 export const activeRun = () => Run.findOne({ status: { $in: ['running', 'paused'] } }).lean();
 
@@ -30,11 +32,16 @@ export async function startRun(edition: number, steps: RunStep[] | undefined, by
   if (chosen.includes('directory')) {
     await enqueue('directory', { runId });
   } else {
-    // Re-running later steps only: start at the first chosen step for every company in the edition.
+    // Re-running later steps only: start at the first chosen chain step for every company in the edition.
     const first = COMPANY_ORDER.find((s) => chosen.includes(s) && handlers[s]);
     if (first) {
       const ids = await Company.find({ 'editions.edition': edition }, { _id: 1 }).lean();
       for (const { _id } of ids) await enqueue(first, { companyId: String(_id), runId });
+    }
+    // Email lookup only makes sense where there are contacts.
+    if (chosen.includes('emails') && handlers.emails) {
+      const ids = await Company.find({ 'editions.edition': edition, contactsCount: { $gt: 0 } }, { _id: 1 }).lean();
+      for (const { _id } of ids) await enqueue('emails', { companyId: String(_id), runId });
     }
   }
   await maybeFinishRun(runId);
@@ -55,11 +62,18 @@ export async function resumeRun(id: string) {
   return run;
 }
 
-/** Queue the next step for a company: the next one in pipeline order that this run includes and that exists yet. */
+/**
+ * Called when a company finishes a step (success or failure). Runs the follow-ups that always apply,
+ * then queues the next step in pipeline order that this run includes and that exists yet.
+ */
 export async function continueAfter(step: RunStep, companyId: string, runId?: string) {
+  if (step === 'website') await afterResearch(companyId); // duplicate check + Sales Navigator hand-off, run or no run
   const run = runId ? await Run.findById(runId, { steps: 1, status: 1 }).lean() : null;
   if (!run || run.status === 'completed' || run.status === 'failed') return;
-  const next = COMPANY_ORDER.slice(COMPANY_ORDER.indexOf(step as RunStep) + 1).find((s) => run.steps.includes(s));
+  // `directory` starts the chain; a step outside the chain (e.g. emails) has nothing after it.
+  const i = step === 'directory' ? -1 : COMPANY_ORDER.indexOf(step);
+  if (step !== 'directory' && i === -1) return;
+  const next = COMPANY_ORDER.slice(i + 1).find((s) => run.steps.includes(s));
   if (next && handlers[next]) await enqueue(next, { companyId, runId });
 }
 

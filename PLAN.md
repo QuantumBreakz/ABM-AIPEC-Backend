@@ -109,7 +109,7 @@ render.yaml
 | `CRON_SECRET` | 32+ random chars; same value in GitHub Secrets |
 | `SCRAPER_USER_AGENT` | `SmartLogicsResearchBot/1.0 (+contact email)` |
 | `LLM_PROVIDER` / `LLM_API_KEY` / `LLM_MODEL` / `LLM_RPM` | empty key = AI off |
-| `CONTACTOUT_API_KEY` / `CONTACTOUT_MAX_LOOKUPS` | empty = off; max is a hard per-run cap |
+| `CONTACTOUT_API_KEY` / `CONTACTOUT_MAX_LOOKUPS` | empty = off; max is a hard cap per calendar month |
 | `MILLIONVERIFIER_API_KEY` / `MILLIONVERIFIER_MAX_CHECKS` | empty = off |
 | `LOG_LEVEL` | `info` |
 
@@ -288,7 +288,7 @@ Needs: BE-2.1
 - [ ] Tests for share-link filtering and multiple matches
 
 **BE-2.3 Dedupe step + merge**
-Same domain → merge automatically (keep the older record; move editions, contacts and facts; write history). Names similar above a threshold but different or missing domains → `needs_review`. `POST /companies/:id/merge` and `/not-duplicate` (stores a "not duplicate of X" note so it isn't asked again).
+Same website domain, or a near-identical name → **flag** for review with a reason (`duplicateOf` + review type `duplicate`). Nothing is merged automatically: different legal entities often share a group domain, and FR-10 says "queue ambiguity". A person merges (keeps every listing, contact and fact; fills gaps; writes history) or marks "not duplicate". `POST /companies/:id/merge` and `/not-duplicate` (stores a "not duplicate of X" note so it isn't asked again).
 Needs: BE-1.3, BE-2.1
 - [ ] Merge keeps every edition and contact; history shows the merge
 - [ ] Re-running dedupe after "not duplicate" doesn't re-flag the pair (AT-10)
@@ -329,7 +329,7 @@ Needs: BE-2.4
 - [ ] Re-importing the same file creates nothing new (AT-10)
 
 **BE-3.3 Email lookup (ContactOut adapter)**
-Only if `CONTACTOUT_API_KEY` is set. Looks up by profile URL and saves each email with provider, source and capture date. Stops at `CONTACTOUT_MAX_LOOKUPS` per run, and anything left over becomes `pending_access` ("Lookup budget reached"). No key → `pending_access` ("ContactOut not connected"); reviewers can type emails in manually.
+Only if `CONTACTOUT_API_KEY` is set. Looks up by profile URL and saves each email with provider, source and capture date. Uses `GET /v1/people/linkedin?email_type=work` (a credit is charged only when an email is found); their v2 batch endpoint is avoided because it guesses emails. Stops at `CONTACTOUT_MAX_LOOKUPS` per calendar month (tracked in Mongo), and anything left over becomes `pending_access` ("Monthly ContactOut limit reached"). No key → `pending_access` ("ContactOut not connected"); reviewers can type emails in manually.
 Needs: BE-3.2
 - [ ] With no key, the whole run still finishes (AT-09)
 - [ ] Every stored email has a provider and date (AT-06)

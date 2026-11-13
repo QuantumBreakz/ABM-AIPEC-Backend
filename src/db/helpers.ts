@@ -23,8 +23,9 @@ export async function setStep(companyId: Id, step: StepKey, status: StepStatus, 
  * Every edit a person makes goes through here (NFR-02): the old value goes to `history`,
  * and the field is added to `lockedFields` so workers never overwrite it later (FR-11).
  * `by` is a user email, or 'system' for automated changes (system changes don't lock fields).
+ * `lock: false` records history without locking (e.g. a reviewer overriding a step status).
  */
-export async function saveWithHistory(M: Model<any>, id: Id, changes: Record<string, unknown>, by: string) {
+export async function saveWithHistory(M: Model<any>, id: Id, changes: Record<string, unknown>, by: string, { lock = true } = {}) {
   const before = await M.findById(id).lean();
   if (!before) return null;
   const changed = Object.entries(changes).filter(([k, v]) => !same(get(before, k), v));
@@ -34,7 +35,8 @@ export async function saveWithHistory(M: Model<any>, id: Id, changes: Record<str
     changed.map(([field, after]) => ({ entity: M.modelName, entityId: id, field, before: get(before, field), after, by })),
   );
   const update: Record<string, unknown> = { $set: Object.fromEntries(changed) };
-  if (by !== 'system' && 'lockedFields' in (before as object)) update.$addToSet = { lockedFields: { $each: changed.map(([k]) => k) } };
+  if (lock && by !== 'system' && 'lockedFields' in (before as object))
+    update.$addToSet = { lockedFields: { $each: changed.map(([k]) => k) } };
   return M.findByIdAndUpdate(id, update, { returnDocument: 'after' }).lean();
 }
 

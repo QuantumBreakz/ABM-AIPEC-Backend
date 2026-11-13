@@ -22,7 +22,9 @@
   "dependencies": {
     "bcryptjs": "^3.0.3",
     "bullmq": "^6.7.5",
+    "cheerio": "^1.2.0",
     "cookie-parser": "^1.4.7",
+    "csv-parse": "^7.0.3",
     "express": "^5.3.0",
     "express-rate-limit": "^8.7.4",
     "helmet": "^8.3.0",

@@ -21,6 +21,7 @@ export type FetchErrorKind =
   | 'too_large'
   | 'timeout'
   | 'network'
+  | 'dns'
   | 'http'
   | 'blocked'
   | 'not_json';
@@ -176,6 +177,8 @@ async function raw(url: string, accept: string, maxBytes: number): Promise<Fetch
       const cause = e?.cause ?? e;
       if (cause instanceof FetchError) throw cause;
       if (e?.name === 'TimeoutError') throw new FetchError('timeout', `Timed out: ${current.href}`);
+      // The domain doesn't exist: retrying won't help.
+      if (cause?.code === 'ENOTFOUND') throw new FetchError('dns', `Domain not found: ${current.hostname}`);
       throw new FetchError('network', `${cause?.code ?? cause?.message ?? 'Network error'}: ${current.href}`);
     }
 

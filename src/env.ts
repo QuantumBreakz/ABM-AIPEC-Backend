@@ -12,6 +12,12 @@ const schema = z.object({
   SCRAPER_USER_AGENT: z.string().default('SmartLogicsResearchBot/1.0'),
   FETCH_DELAY_MS: z.coerce.number().default(1500),
   LOG_LEVEL: z.string().default('info'),
+  // Paid providers: each is OFF unless its key is set (zero-new-cost rule, PTC §8).
+  CONTACTOUT_API_KEY: z.string().optional(),
+  CONTACTOUT_MAX_LOOKUPS: z.coerce.number().int().min(0).default(50), // hard cap per calendar month
+  MILLIONVERIFIER_API_KEY: z.string().optional(),
+  LLM_API_KEY: z.string().optional(),
+  LLM_MODEL: z.string().optional(),
 });
 
 const parsed = schema.safeParse(process.env);

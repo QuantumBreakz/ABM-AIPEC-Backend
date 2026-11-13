@@ -6,10 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       task: { description: "Task name, e.g. refresh-websites", required: true }
-  # Turn these on when the tasks exist (BE-2.6 refresh-websites, BE-5.3 verify-emails):
-  # schedule:
-  #   - cron: "0 1 * * *"   # verify-emails, nightly
-  #   - cron: "0 2 * * 0"   # refresh-websites, weekly
+  schedule:
+    - cron: "0 2 * * 0"     # refresh-websites, weekly (Sunday 02:00 UTC)
+    # - cron: "0 1 * * *"   # verify-emails, nightly — turn on with BE-5.3
 
 jobs:
   run:

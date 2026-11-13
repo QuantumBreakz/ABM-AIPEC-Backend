@@ -46,6 +46,11 @@ export async function enqueue(name: QueueName, data: JobData) {
   await queues[name].add(name, data, key ? { jobId: `${name}-${key}` } : {});
 }
 
+/** Queue a follow-up only if that step has been built yet (so later phases switch on by themselves). */
+export async function queueIfReady(name: QueueName, data: JobData) {
+  if (handlers[name]) await enqueue(name, data);
+}
+
 /** Put a job back after a Redis wipe, without touching its status in Mongo. */
 export const requeue = (name: QueueName, data: JobData) =>
   queues[name].add(name, data, { jobId: `${name}-${data.contactId ?? data.companyId ?? data.runId}` });
