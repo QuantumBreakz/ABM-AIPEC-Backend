@@ -2,7 +2,7 @@
  * Email check, one job per company (FR-18…21). Runs as a batch after the initial CSV:
  * from POST /verification/run or the nightly cron.
  *
- * Every email still `not_checked` gets a status, a date and a source:
+ * Every email still `not_checked`, or last checked over 30 days ago, gets a status, a date and a source:
  *  - MillionVerifier when its key is set (the only way an email can become `verified`)
  *  - otherwise the free MX check, which can only say `invalid` or `unknown`
  * Never marks anything verified without a real check result. Opted-out emails are skipped.
@@ -16,13 +16,26 @@ import { millionVerifierEnabled, takeCheck, VerifierStop, verifyEmail } from '..
 import { checkMx } from '../../providers/mx.js';
 import type { JobData } from '../queue.js';
 
+/** Results older than this are checked again: mailboxes close and domains lapse. */
+export const RECHECK_AFTER_DAYS = 30;
+const stale = () => new Date(Date.now() - RECHECK_AFTER_DAYS * 24 * 60 * 60 * 1000);
+
+/** Emails that need a check: never checked, or checked more than RECHECK_AFTER_DAYS ago. */
+export const needsCheck = (v?: { status?: string | null; checkedAt?: Date | null } | null) =>
+  !v?.status || v.status === 'not_checked' || (!!v.checkedAt && v.checkedAt < stale());
+
+/** Mongo filter for contacts with at least one email that needs a check. */
+export const needsCheckFilter = () => ({
+  $or: [{ 'emails.verification.status': 'not_checked' }, { 'emails.verification.checkedAt': { $lt: stale() } }],
+});
+
 export async function verificationStep(job: Job<JobData>) {
   const companyId = job.data.companyId!;
-  const contacts = await Contact.find({ company: companyId, 'emails.verification.status': 'not_checked' }).lean();
+  const contacts = await Contact.find({ company: companyId, ...needsCheckFilter() }).lean();
   const todo = contacts.flatMap((c) =>
-    c.emails.filter((e) => e.verification?.status === 'not_checked').map((e) => ({ contactId: c._id, address: e.address })),
+    c.emails.filter((e) => needsCheck(e.verification)).map((e) => ({ contactId: c._id, address: e.address })),
   );
-  if (!todo.length) return setStep(companyId, 'verification', 'completed', 'No unchecked emails');
+  if (!todo.length) return setStep(companyId, 'verification', 'completed', 'No emails needed a check');
 
   const blocked = await suppressedOf(todo.map((t) => t.address));
   const useMv = millionVerifierEnabled();

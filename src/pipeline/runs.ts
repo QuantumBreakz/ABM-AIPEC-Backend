@@ -12,6 +12,7 @@ import { log } from '../lib/logger.js';
 import { AI_REASON } from '../providers/llm.js';
 import { enqueue, handlers, isStep, type JobData, pauseAll, type QueueName, requeue, resumeAll } from './queue.js';
 import { afterResearch } from './research.js';
+import { needsCheckFilter } from './steps/verification.js';
 
 /**
  * What a run can include, in pipeline order: the directory plus every company step (as the frontend offers them).
@@ -55,9 +56,13 @@ export async function startRun(edition: number, steps: RunStep[] | undefined, by
       const ids = await Company.find({ 'editions.edition': edition, contactsCount: { $gt: 0 } }, { _id: 1 }).lean();
       for (const { _id } of ids) await enqueue('emails', { companyId: String(_id), runId });
     }
-    // Email check (the batch after the initial CSV): companies with emails not checked yet.
+    // Email check (the batch after the initial CSV): companies with emails never checked, or checked > 30 days ago.
     if (chosen.includes('verification') && handlers.verification) {
-      const ids = await Company.find({ 'editions.edition': edition, emailStatuses: 'not_checked' }, { _id: 1 }).lean();
+      const withStale = await Contact.distinct('company', needsCheckFilter());
+      const ids = await Company.find(
+        { 'editions.edition': edition, $or: [{ emailStatuses: 'not_checked' }, { _id: { $in: withStale } }] },
+        { _id: 1 },
+      ).lean();
       for (const { _id } of ids) await enqueue('verification', { companyId: String(_id), runId });
     }
   }
