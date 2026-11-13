@@ -42,7 +42,7 @@ describe('setStep / completeness / contact stats', () => {
     const after = (await Company.findById(c._id).lean())!;
     expect(after.stages?.profile).toMatchObject({ status: 'partial', reason: 'Profile has no description' });
     expect(after.completeness).toBe(completenessOf(after));
-    expect(after.completeness).toBe(20); // listing + website
+    expect(after.completeness).toBe(6); // one step partial = ½ of 1 step out of 8
   });
 
   it('keeps contactsCount and emailStatuses in sync', async () => {

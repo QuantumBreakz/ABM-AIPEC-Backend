@@ -182,7 +182,8 @@ export const toRun = (r: RunDoc, summary: RunSummary): C.Run => ({
   createdAt: iso(r.createdAt)!,
   finishedAt: iso(r.finishedAt),
   ...summary,
-  errors: (r.errors ?? []).map((e) => ({
+  errors: [...(r.errors ?? [])].reverse().map((e) => ({
+    // newest first
     companyId: str(e.companyId),
     companyName: str(e.companyName),
     step: e.step ?? '',

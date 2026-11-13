@@ -60,7 +60,8 @@ describe('editing a company', () => {
 
   it('rejects unknown fields and bad links', async () => {
     expect((await reviewer.patch(`/companies/${companyId}`).send({ name: 'Hacked' })).status).toBe(400);
-    expect((await reviewer.patch(`/companies/${companyId}`).send({ salesNav: { accountUrl: 'https://evil.example/x' } })).status).toBe(400);
+    expect((await reviewer.patch(`/companies/${companyId}`).send({ salesNav: { accountUrl: 'javascript:alert(1)' } })).status).toBe(400);
+    expect((await reviewer.patch(`/companies/${companyId}`).send({ socials: { x: 'not a link' } })).status).toBe(400);
     expect((await reviewer.patch(`/companies/${companyId}`).send({})).status).toBe(400);
   });
 
@@ -91,7 +92,7 @@ describe('editing a company', () => {
 });
 
 describe('contacts', () => {
-  it('adds a contact, normalises the LinkedIn link, and refuses the same person twice', async () => {
+  it('adds a contact, normalises the LinkedIn link, and updates (not duplicates) the same person', async () => {
     const r = await reviewer
       .post(`/companies/${companyId}/contacts`)
       .send({
@@ -107,9 +108,19 @@ describe('contacts', () => {
       profileUrl: 'https://www.linkedin.com/in/sam-example',
       emails: [{ address: 'sam@delta.example', verification: { status: 'not_checked' } }],
     });
-    expect(
-      (await reviewer.post(`/companies/${companyId}/contacts`).send({ firstName: 'sam', lastName: 'EXAMPLE', source: 'manual' })).status,
-    ).toBe(409);
+    // Same person again (any case, or by LinkedIn link): 200 and the existing contact is updated.
+    const again = await reviewer
+      .post(`/companies/${companyId}/contacts`)
+      .send({ firstName: 'Sam', lastName: 'Example', title: 'Chief Technology Officer', source: 'manual', geography: '' })
+      .expect(200);
+    expect(again.body).toMatchObject({ id: r.body.id, title: 'Chief Technology Officer' });
+    expect(again.body.emails).toHaveLength(1);
+    const byLink = await reviewer
+      .post(`/companies/${companyId}/contacts`)
+      .send({ firstName: 'Samuel', lastName: 'Example', profileUrl: 'https://www.linkedin.com/in/sam-example/', source: 'manual' })
+      .expect(200);
+    expect(byLink.body.id).toBe(r.body.id);
+    await reviewer.patch(`/contacts/${r.body.id}`).send({ firstName: 'Sam' }).expect(200);
     expect((await reviewer.post(`/companies/${companyId}/contacts`).send({ firstName: 'X', source: 'manual' })).status).toBe(400);
   });
 
@@ -119,7 +130,7 @@ describe('contacts', () => {
       .post(`/companies/${companyId}/contacts`)
       .send({ firstName: 'Opt', lastName: 'Out', source: 'manual', emails: [{ address: 'a@optout.example' }] });
     expect(r.status).toBe(400);
-    expect(r.body.error.message).toContain('opted out');
+    expect(r.body.error.message).toContain('opt-out list');
   });
 
   it('imports a pasted CSV: good rows in, bad rows reported, re-import adds nothing', async () => {
@@ -142,8 +153,10 @@ describe('contacts', () => {
     expect((await Company.findById(companyId).lean())?.contactsCount).toBe(2);
   });
 
-  it('refuses a CSV without name columns', async () => {
+  it('refuses a CSV without name columns, or with columns it does not know', async () => {
     expect((await reviewer.post(`/companies/${companyId}/contacts/import`).send({ csv: 'email\na@b.example' })).status).toBe(400);
+    const r = await reviewer.post(`/companies/${companyId}/contacts/import`).send({ csv: 'first_name,last_name,phone\nA,B,123' });
+    expect([r.status, r.body.error.message]).toEqual([400, 'Unknown columns: phone']);
   });
 
   it('editing emails keeps check results for addresses that stay', async () => {
@@ -160,9 +173,10 @@ describe('contacts', () => {
       ['sam@delta.example', 'verified'],
       ['new@delta.example', 'not_checked'],
     ]);
-    expect((await reviewer.get(`/companies/${companyId}/history`)).body.some((h: { field: string }) => h.field === 'contact.emails')).toBe(
-      true,
-    );
+    // Company timeline, frontend format: field "contact:<id>", "updated" → full name.
+    const history = (await reviewer.get(`/companies/${companyId}/history`)).body as { field: string; before: unknown; after: unknown }[];
+    expect(history[0]).toMatchObject({ field: `contact:${sam._id}`, before: 'updated', after: 'Sam Example' });
+    expect(history.some((h) => h.field === `contact:${sam._id}` && h.before === null && h.after === 'Sam Example')).toBe(true); // added
   });
 
   it('only admins delete contacts', async () => {

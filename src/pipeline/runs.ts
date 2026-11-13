@@ -6,24 +6,35 @@ import type { Job } from 'bullmq';
 import type { StepKey, StepStatus } from '../contract.js';
 import { setStep } from '../db/helpers.js';
 import type { RunSummary } from '../db/mappers.js';
-import { Company, Event, Run, type RunDoc } from '../db/models.js';
-import { conflict, notFound } from '../lib/errors.js';
+import { Company, Event, Run, type RunDoc, STEPS } from '../db/models.js';
+import { badRequest, conflict } from '../lib/errors.js';
 import { log } from '../lib/logger.js';
 import { enqueue, handlers, isStep, type JobData, pauseAll, type QueueName, requeue, resumeAll } from './queue.js';
 import { afterResearch } from './research.js';
 
-/** What a run can include, in pipeline order. Sales Navigator steps are manual, verification is a separate batch. */
-export const RUN_STEPS = ['directory', 'profile', 'website', 'emails', 'personalization'] as const;
+/**
+ * What a run can include, in pipeline order: the directory plus every company step (as the frontend offers them).
+ * Not all of them queue work: `social` happens inside `website`, `account`/`people` are done by a person,
+ * and `verification` is its own batch. Including them still shows their progress on the run.
+ */
+export const RUN_STEPS = ['directory', ...STEPS] as const;
 export type RunStep = (typeof RUN_STEPS)[number];
 /** The per-company chain. `emails` isn't in it: it runs when contacts are added (or when a run asks for it). */
-const COMPANY_ORDER: RunStep[] = ['profile', 'website', 'personalization'];
+const COMPANY_ORDER: QueueName[] = ['profile', 'website', 'personalization'];
 
 export const activeRun = () => Run.findOne({ status: { $in: ['running', 'paused'] } }).lean();
 
 export async function startRun(edition: number, steps: RunStep[] | undefined, by: string) {
-  if (!(await Event.exists({ edition }))) throw notFound(`No event for edition ${edition}. Create it first.`);
+  if (!(await Event.exists({ edition }))) throw badRequest(`Pick an edition that exists (no event for ${edition} yet).`);
   const running = await activeRun();
-  if (running) throw conflict('A run is already in progress. Pause or wait for it to finish.', { runId: String(running._id) });
+  if (running) {
+    // Only one active run: the queues are shared, so a paused run would also hold up a new one.
+    const msg =
+      running.status === 'paused'
+        ? 'A paused run exists. Resume it (or let it finish) before starting another.'
+        : 'A run is already in progress. Pause or wait for it to finish.';
+    throw conflict(msg, { runId: String(running._id) });
+  }
 
   const chosen = RUN_STEPS.filter((s) => !steps || steps.includes(s));
   const run = await Run.create({ edition, steps: chosen, startedBy: by });
@@ -59,7 +70,9 @@ export async function resumeRun(id: string) {
   const run = await Run.findOneAndUpdate({ _id: id, status: 'paused' }, { status: 'running' }, { returnDocument: 'after' }).lean();
   if (!run) throw conflict('Only a paused run can be resumed');
   await resumeAll();
-  return run;
+  // Nothing may be left to do (e.g. it was paused right at the end): finish it now instead of waiting for a job.
+  await maybeFinishRun(String(run._id));
+  return (await Run.findById(run._id).lean())!;
 }
 
 /**
@@ -71,7 +84,7 @@ export async function continueAfter(step: RunStep, companyId: string, runId?: st
   const run = runId ? await Run.findById(runId, { steps: 1, status: 1 }).lean() : null;
   if (!run || run.status === 'completed' || run.status === 'failed') return;
   // `directory` starts the chain; a step outside the chain (e.g. emails) has nothing after it.
-  const i = step === 'directory' ? -1 : COMPANY_ORDER.indexOf(step);
+  const i = step === 'directory' ? -1 : COMPANY_ORDER.indexOf(step as QueueName);
   if (step !== 'directory' && i === -1) return;
   const next = COMPANY_ORDER.slice(i + 1).find((s) => run.steps.includes(s));
   if (next && handlers[next]) await enqueue(next, { companyId, runId });

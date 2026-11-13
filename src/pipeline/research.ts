@@ -139,7 +139,7 @@ export async function mergeCompanies(fromId: string, intoId: string, by: string)
 
   await Company.updateMany({ duplicateOf: from._id }, { $set: { duplicateOf: into._id } });
   await Company.updateOne({ _id: into._id, duplicateOf: into._id }, { $unset: { duplicateOf: 1, duplicateReason: 1 } });
-  await History.create({ entity: 'Company', entityId: into._id, field: '_merged', before: { id: String(from._id), name: from.name }, by });
+  await History.create({ entity: 'Company', entityId: into._id, field: 'merge', before: from.name, after: into.name, by });
   await Company.deleteOne({ _id: from._id });
   await refreshContactStats(into._id);
   const fresh = (await Company.findById(into._id).lean())!;
@@ -155,5 +155,5 @@ export async function markNotDuplicate(companyId: string, by: string) {
   const other = c.duplicateOf;
   await Company.updateOne({ _id: c._id }, { $unset: { duplicateOf: 1, duplicateReason: 1 }, $addToSet: { notDuplicateOf: other } });
   await Company.updateOne({ _id: other }, { $addToSet: { notDuplicateOf: c._id } });
-  await History.create({ entity: 'Company', entityId: c._id, field: '_notDuplicate', before: String(other), by });
+  await History.create({ entity: 'Company', entityId: c._id, field: 'duplicateOf', before: String(other), after: null, by });
 }

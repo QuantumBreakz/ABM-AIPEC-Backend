@@ -1,6 +1,6 @@
 import type { Model, Types } from 'mongoose';
 import type { StepKey, StepStatus } from '../contract.js';
-import { Company, type CompanyDoc, Contact, History } from './models.js';
+import { Company, Contact, History, STEPS } from './models.js';
 
 type Id = Types.ObjectId | string;
 const get = (obj: any, path: string) => path.split('.').reduce((o, k) => o?.[k], obj);
@@ -23,13 +23,13 @@ export async function setStep(companyId: Id, step: StepKey, status: StepStatus, 
  * Every edit a person makes goes through here (NFR-02): the old value goes to `history`,
  * and the field is added to `lockedFields` so workers never overwrite it later (FR-11).
  * `by` is a user email, or 'system' for automated changes (system changes don't lock fields).
- * `lock: false` records history without locking (e.g. a reviewer overriding a step status).
+ * `lock: false` records history without locking. Returns the updated doc and which fields really changed.
  */
 export async function saveWithHistory(M: Model<any>, id: Id, changes: Record<string, unknown>, by: string, { lock = true } = {}) {
   const before = await M.findById(id).lean();
-  if (!before) return null;
+  if (!before) return { doc: null, changed: [] as string[] };
   const changed = Object.entries(changes).filter(([k, v]) => !same(get(before, k), v));
-  if (!changed.length) return before;
+  if (!changed.length) return { doc: before, changed: [] as string[] };
 
   await History.insertMany(
     changed.map(([field, after]) => ({ entity: M.modelName, entityId: id, field, before: get(before, field), after, by })),
@@ -37,7 +37,8 @@ export async function saveWithHistory(M: Model<any>, id: Id, changes: Record<str
   const update: Record<string, unknown> = { $set: Object.fromEntries(changed) };
   if (lock && by !== 'system' && 'lockedFields' in (before as object))
     update.$addToSet = { lockedFields: { $each: changed.map(([k]) => k) } };
-  return M.findByIdAndUpdate(id, update, { returnDocument: 'after' }).lean();
+  const doc = await M.findByIdAndUpdate(id, update, { returnDocument: 'after' }).lean();
+  return { doc, changed: changed.map(([k]) => k) };
 }
 
 /** Keeps the company's contact counters in sync after contacts change (used for list filters). */
@@ -47,20 +48,22 @@ export async function refreshContactStats(companyId: Id) {
   await Company.updateOne({ _id: companyId }, { $set: { contactsCount: contacts.length, emailStatuses: statuses } });
 }
 
-/** 0–100: share of the things we want to know about a company that we actually have. */
-export function completenessOf(c: Pick<CompanyDoc, 'editions' | 'website' | 'socials' | 'contactsCount' | 'emailStatuses' | 'ai'>) {
-  const e = c.editions ?? [];
-  const checks = [
-    e.length > 0,
-    !!c.website?.url,
-    e.some((x) => x.description),
-    e.some((x) => x.country),
-    e.some((x) => x.category),
-    !!(c.socials?.linkedin || c.socials?.facebook || c.socials?.instagram || c.socials?.x || c.socials?.youtube),
-    (c.website?.facts?.length ?? 0) > 0,
-    (c.contactsCount ?? 0) > 0,
-    (c.emailStatuses?.length ?? 0) > 0,
-    !!c.ai?.summary,
-  ];
-  return Math.round((checks.filter(Boolean).length / checks.length) * 100);
+// How much each step status counts towards completeness (same formula the frontend shows).
+const SCORE: Record<StepStatus, number> = {
+  completed: 1,
+  approved: 1,
+  partial: 0.5,
+  not_started: 0,
+  in_progress: 0,
+  needs_review: 0,
+  pending_access: 0,
+  restricted: 0,
+  failed: 0,
+};
+
+/** 0–100: completed/approved steps count 1, partial ½, everything else 0, averaged over all 8 steps. */
+export function completenessOf(c: { stages?: unknown }) {
+  const stages = (c.stages ?? {}) as Record<string, { status?: StepStatus } | undefined>;
+  const total = STEPS.reduce((sum, k) => sum + SCORE[stages[k]?.status ?? 'not_started'], 0);
+  return Math.round((100 * total) / STEPS.length);
 }

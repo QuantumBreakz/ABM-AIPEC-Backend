@@ -89,7 +89,9 @@ describe('merge', () => {
     const sam = (await Contact.findOne({ company: into._id, firstName: 'Sam' }).lean())!;
     expect(sam.emails.map((e) => e.address).sort()).toEqual(['sam@a.example', 'sam@b.example']);
     expect(String((await Company.findById(third._id).lean())?.duplicateOf)).toBe(String(into._id));
-    expect(await History.exists({ entityId: into._id, field: '_merged' })).toBeTruthy();
+    expect(
+      await History.exists({ entityId: into._id, field: 'merge', before: 'Gamma Subsea Ltd Old', after: 'Gamma Subsea' }),
+    ).toBeTruthy();
   });
 
   it('refuses to merge a company into itself', async () => {

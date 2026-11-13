@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import type { CompanyListItem, HistoryEntry } from '../contract.js';
-import { saveWithHistory } from '../db/helpers.js';
+import { saveWithHistory, setStep } from '../db/helpers.js';
 import { toCompany, toListItem } from '../db/mappers.js';
 import { AI_STATUSES, CONFIDENCE, COVERAGE, Company, Contact, EMAIL_STATUSES, History, STATUSES, STEPS } from '../db/models.js';
 import { requireRole } from '../lib/auth.js';
@@ -41,13 +41,20 @@ export function companyQuery(f: CompanyFilters): Filter {
   const and: Filter[] = [];
   if (f.q) {
     const n = normalizeName(f.q);
-    and.push({ $or: [{ name: contains(f.q) }, ...(n ? [{ normalizedName: contains(n) }] : []), { domain: contains(f.q.toLowerCase()) }] });
+    and.push({
+      $or: [
+        { name: contains(f.q) },
+        { originalNames: contains(f.q) }, // spellings from other listings
+        ...(n ? [{ normalizedName: contains(n) }] : []),
+        { domain: contains(f.q.toLowerCase()) },
+      ],
+    });
   }
   // Edition, category and country must match on the same listing.
   const listing: Record<string, unknown> = {};
   if (f.edition) listing.edition = f.edition;
   if (f.category) listing.category = contains(f.category);
-  if (f.country) listing.country = contains(f.country);
+  if (f.country) listing.country = new RegExp(`^${escapeRegex(f.country)}$`, 'i'); // exact country, any case
   if (Object.keys(listing).length) and.push({ editions: { $elemMatch: listing } });
 
   if (f.step && f.stepStatus) and.push({ [`stages.${f.step}.status`]: f.stepStatus });
@@ -107,25 +114,26 @@ companiesRoutes.get('/:id', async (req, res) => {
 // Edits by reviewers (BE-2.4). Every change goes through saveWithHistory: old value kept, field locked.
 // ---------------------------------------------------------------------------------------------
 
-const httpUrl = z.url({ protocol: /^https?$/ }).max(500);
-const linkedinUrl = httpUrl.refine((u) => /(^|\.)linkedin\.com$/i.test(new URL(u).hostname), 'Must be a linkedin.com link');
+const httpUrl = z.url({ protocol: /^https?$/, error: 'Enter a full web address starting with http:// or https://' }).max(500);
+/** "" or null clears the field (same as the frontend sends from an emptied input). */
+const clearable = <T extends z.ZodType>(t: T) => z.preprocess((v) => (v === '' ? null : v), t.nullable());
 
 /** The fields a person may edit (contract: PATCH /companies/:id). Nested or dotted keys both work. */
 const editSchema = z
   .object({
-    'website.url': httpUrl.nullable(),
-    'website.summary': z.string().trim().max(2000).nullable(),
+    'website.url': clearable(httpUrl),
+    'website.summary': clearable(z.string().trim().max(2000)),
     'website.services': z.array(z.string().trim().min(1).max(200)).max(100),
     'website.markets': z.array(z.string().trim().min(1).max(200)).max(100),
-    'socials.linkedin': httpUrl.nullable(),
-    'socials.facebook': httpUrl.nullable(),
-    'socials.instagram': httpUrl.nullable(),
-    'socials.x': httpUrl.nullable(),
-    'socials.youtube': httpUrl.nullable(),
+    'socials.linkedin': clearable(httpUrl),
+    'socials.facebook': clearable(httpUrl),
+    'socials.instagram': clearable(httpUrl),
+    'socials.x': clearable(httpUrl),
+    'socials.youtube': clearable(httpUrl),
     'socials.other': z.array(httpUrl).max(20),
-    'salesNav.accountUrl': linkedinUrl.nullable(),
-    'salesNav.matchConfidence': z.enum(CONFIDENCE).nullable(),
-    leadershipCoverage: z.enum(COVERAGE),
+    'salesNav.accountUrl': clearable(httpUrl),
+    'salesNav.matchConfidence': clearable(z.enum(CONFIDENCE)),
+    leadershipCoverage: z.preprocess((v) => (v === '' || v === null ? 'unknown' : v), z.enum(COVERAGE)),
   })
   .partial()
   .strict();
@@ -174,12 +182,22 @@ companiesRoutes.post('/:id/steps/:step', async (req, res) => {
   const body = z
     .object({
       status: z.enum(STATUSES).exclude(['in_progress']), // only the system queues work
-      reason: z.string().trim().min(3, 'Say why, in a few words').max(500),
+      reason: z.string().trim().min(1, 'Say why, in a few words').max(500),
     })
     .parse(req.body);
-  const company = await Company.findById(req.params.id, { contactsCount: 1 }).lean();
+  const company = await Company.findById(req.params.id, { contactsCount: 1, stages: 1 }).lean();
   if (!company) throw notFound('Company not found');
-  await saveWithHistory(Company, company._id, { [`stages.${step}`]: { ...body, updatedAt: new Date() } }, req.user!.email, { lock: false });
+  // Logged as status → status, and not locked: a later run may update this step again.
+  const before = (company.stages as any)?.[step]?.status ?? 'not_started';
+  await setStep(company._id, step, body.status, body.reason);
+  await History.create({
+    entity: 'Company',
+    entityId: company._id,
+    field: `stages.${step}`,
+    before,
+    after: body.status,
+    by: req.user!.email,
+  });
   // People done and contacts present → look up their emails.
   if (step === 'people' && ['completed', 'approved'].includes(body.status) && company.contactsCount > 0) {
     await queueIfReady('emails', { companyId: String(company._id) });
@@ -197,17 +215,13 @@ companiesRoutes.post('/:id/not-duplicate', async (req, res) => {
   res.json(await companyResponse(String(req.params.id)));
 });
 
-/** The company's timeline, including edits to its contacts. Newest first. */
+/** The company's timeline, newest first. Contact changes appear as `contact:<id>` entries. */
 companiesRoutes.get('/:id/history', async (req, res) => {
   const company = await Company.findById(req.params.id, { _id: 1 }).lean();
   if (!company) throw notFound('Company not found');
-  const contactIds = (await Contact.find({ company: company._id }, { _id: 1 }).lean()).map((c) => c._id);
-  const rows = await History.find({ entityId: { $in: [company._id, ...contactIds] } })
-    .sort({ at: -1 })
-    .limit(500)
-    .lean();
+  const rows = await History.find({ entity: 'Company', entityId: company._id }).sort({ at: -1 }).limit(500).lean();
   const body: HistoryEntry[] = rows.map((h) => ({
-    field: h.entity === 'Contact' ? `contact.${h.field}` : (h.field ?? ''),
+    field: h.field ?? '',
     before: h.before,
     after: h.after,
     by: h.by,

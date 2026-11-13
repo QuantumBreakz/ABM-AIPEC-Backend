@@ -2,7 +2,7 @@
 
 API + background workers for the ADIPEC lead-generation system. The full plan and ticket list are in [PLAN.md](PLAN.md). This file explains **how the code works** and **how to run it**.
 
-Status: **Phases 0–3 are built** (foundations, exhibitors, company research, people). AI drafts and exports come next (Phase 4).
+Status: **Phases 0–3 are built** (foundations, exhibitors, company research, people) and **checked against the real frontend**. See [docs/frontend-integration.md](docs/frontend-integration.md) for what was aligned. AI drafts and exports come next (Phase 4).
 
 ---
 
