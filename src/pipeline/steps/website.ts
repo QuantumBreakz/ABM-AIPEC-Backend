@@ -9,6 +9,7 @@ import { setStep } from '../../db/helpers.js';
 import { Company } from '../../db/models.js';
 import { FetchError, fetchPage } from '../../lib/fetcher.js';
 import { normalizeDomain } from '../../lib/normalize.js';
+import { discoverOfficialWebsite } from '../../sources/discoverWebsite.js';
 import {
   factSentences,
   genericEmails,
@@ -64,8 +65,25 @@ export async function websiteStep(job: Job<JobData>) {
     ? ['completed', 'From the ADIPEC profile']
     : ['partial', 'No website to look for social links'];
 
-  const url = company.website?.url;
-  if (!url) return finish('needs_review', 'No website on the ADIPEC profile. Add it by hand if you know it.', socialFromProfile);
+  let url = company.website?.url;
+  if (!url && !locked.has('website.url')) {
+    const latestEdition = company.editions?.at(-1);
+    const discovered = await discoverOfficialWebsite({
+      name: company.name,
+      country: latestEdition?.country ?? undefined,
+      description: latestEdition?.description ?? undefined,
+    });
+    if (discovered) {
+      const domain = normalizeDomain(discovered.url);
+      const other = domain ? await Company.findOne({ domain, _id: { $ne: id } }, { _id: 1 }).lean() : null;
+      if (!other) {
+        url = discovered.url;
+        await Company.updateOne({ _id: id }, { $set: { 'website.url': url, ...(domain ? { domain } : {}) } });
+      }
+    }
+  }
+  if (!url)
+    return finish('needs_review', 'No website on the ADIPEC profile or via discovery. Add it by hand if you know it.', socialFromProfile);
 
   let home: Awaited<ReturnType<typeof fetchPage>>;
   try {

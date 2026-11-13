@@ -128,9 +128,17 @@ function checkUrl(raw: string): URL {
 const nextSlot = new Map<string, number>();
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+const MAX_SLOTS = 500;
+const MAX_ROBOTS_CACHE = 300;
+
 /** Reserve the next free time slot for this host, then wait for it. Safe with concurrent callers. */
 async function waitTurn(host: string) {
   const now = Date.now();
+  if (nextSlot.size > MAX_SLOTS) {
+    for (const [k, v] of nextSlot) {
+      if (v <= now) nextSlot.delete(k);
+    }
+  }
   const at = Math.max(now, nextSlot.get(host) ?? 0);
   nextSlot.set(host, at + env.FETCH_DELAY_MS);
   if (at > now) await sleep(at - now);
@@ -149,6 +157,10 @@ async function robotsAllows(u: URL): Promise<boolean> {
       if (r.status === 200) robots = robotsParser(robotsUrl, r.body);
     } catch {
       // No reachable robots.txt = no rules. (ponytail: Google treats 5xx as "disallow all"; switch if a site complains.)
+    }
+    if (robotsCache.size >= MAX_ROBOTS_CACHE) {
+      const oldest = robotsCache.keys().next().value;
+      if (oldest) robotsCache.delete(oldest);
     }
     entry = { at: Date.now(), robots };
     robotsCache.set(u.origin, entry);
