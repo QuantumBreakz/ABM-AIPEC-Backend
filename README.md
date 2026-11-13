@@ -2,7 +2,7 @@
 
 API + background workers for the ADIPEC lead-generation system. The full plan and ticket list are in [PLAN.md](PLAN.md). This file explains **how the code works** and **how to run it**.
 
-Status: **Phase 0 (foundations) and Phase 1 (exhibitors) are built.** The website step comes next (Phase 2).
+Status: **Phase 0 (foundations) and Phase 1 (exhibitors) are built and merged.** The website step comes next (Phase 2).
 
 ---
 
@@ -95,7 +95,13 @@ Everything follows the contract in PLAN.md: error shape, paging, field names.
 
 ## Run it locally
 
-You need Node 22+, MongoDB and Redis.
+You need **Node 24** (anything from 22.19 works), MongoDB and Redis.
+
+```bash
+nvm install                    # reads .nvmrc → Node 24 (once)
+nvm use                        # every new terminal, in this folder
+node -v                        # should print v24.x
+```
 
 ```bash
 brew install mongodb-community redis   # once
@@ -105,11 +111,20 @@ brew services start redis
 
 ```bash
 cp .env.example .env          # then fill JWT_SECRET and CRON_SECRET (command in the file)
-npm install
+npm ci                        # exact versions from package-lock.json
 npm run seed                  # 150 fake companies in every state + 2 runs
 npm run create-admin -- you@example.com
 npm run dev                   # API + workers on http://localhost:4000
 ```
+
+### If the install goes wrong
+
+| You see | Why | Fix |
+|---|---|---|
+| `EBADENGINE` / `Unsupported engine` | Wrong Node version (e.g. 20). `.npmrc` makes npm stop instead of half-installing. | `nvm use`, then `npm ci` again |
+| `ENOSPC: no space left on device` | Your disk is full; the install stopped halfway. `node_modules` needs ~220 MB. | Free some space, then `rm -rf node_modules && npm ci` |
+| `Cannot find module …` after one of the above | A broken half-install | `rm -rf node_modules && npm ci` |
+| `(base)` in your prompt | That's conda, not a problem, as long as `node -v` shows v24 | – |
 
 Try it:
 
