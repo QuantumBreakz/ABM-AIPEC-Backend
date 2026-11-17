@@ -26,4 +26,6 @@ jobs:
       - name: Wake the backend
         run: curl -fsS --retry 5 --retry-delay 20 --max-time 90 "${{ vars.BACKEND_URL }}/health"
       - name: Trigger
-        run: curl -fsS -X POST -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" "${{ vars.BACKEND_URL }}/cron/${{ steps.t.outputs.task }}"
+        # Block scalar: a plain one-liner breaks YAML on the ": " inside the header.
+        run: |
+          curl -fsS -X POST -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" "${{ vars.BACKEND_URL }}/cron/${{ steps.t.outputs.task }}"
