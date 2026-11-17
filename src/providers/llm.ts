@@ -1,18 +1,61 @@
 /**
- * The AI model (OpenRouter free tier or Anthropic Claude). OFF unless OPENROUTER_API_KEY or LLM_API_KEY is set:
- * without it nothing is generated and drafts stay "pending" (FR-31, zero-new-cost rule).
+ * The AI model (OpenRouter free tier with multi-key rotation, or Anthropic Claude).
+ * OFF unless at least one OpenRouter key or LLM_API_KEY is set: without it nothing is generated
+ * and drafts stay "pending" (FR-31, zero-new-cost rule).
  *
+ * - Key rotation: supports up to 3 (or more) OpenRouter keys via OPENROUTER_API_KEY_1..3,
+ *   OPENROUTER_API_KEYS (comma-separated), or OPENROUTER_API_KEY. Calls round-robin across
+ *   healthy keys and automatically fail over on 429 rate-limits, 402 quota exhaustion, or 401/403.
  * - Structured outputs: the answer must match a zod schema (`messages.parse` or JSON object response), so we never parse free text.
- * - Free tier: OpenRouter free models (e.g. meta-llama/llama-3.3-70b-instruct:free) use OpenAI-compatible chat completions.
- * - Refusals / fallbacks: if the model declines or fails, a clear reason is recorded.
- * - Rate limits: BullMQ retries the job with backoff. The worker is throttled to LLM_RPM requests per minute (pipeline/queue.ts).
+ * - Rate limits: BullMQ retries the job with backoff if all keys are rate-limited. The worker is throttled to LLM_RPM requests per minute.
  */
 import Anthropic from '@anthropic-ai/sdk';
 import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import type { z } from 'zod';
 import { env } from '../env.js';
+import { log } from '../lib/logger.js';
 
-export const llmEnabled = () => !!(env.OPENROUTER_API_KEY || env.LLM_API_KEY);
+const RATE_LIMIT_COOLDOWN_MS = 60_000;
+const AUTH_OR_QUOTA_COOLDOWN_MS = 10 * 60_000;
+const REQUEST_TIMEOUT_MS = 120_000;
+
+let keyCursor = 0;
+const keyCooldownUntil = new Map<string, number>();
+
+/** Collect all unique, non-empty OpenRouter keys from env in priority order. */
+export function getOpenRouterKeys(): string[] {
+  const candidates: string[] = [];
+  const pushSplit = (raw?: string) => {
+    if (!raw) return;
+    for (const part of raw.split(',')) {
+      const trimmed = part.trim();
+      if (trimmed) candidates.push(trimmed);
+    }
+  };
+
+  pushSplit(env.OPENROUTER_API_KEYS);
+  pushSplit(env.OPENROUTER_API_KEY);
+  pushSplit(env.OPENROUTER_API_KEY_1);
+  pushSplit(env.OPENROUTER_API_KEY_2);
+  pushSplit(env.OPENROUTER_API_KEY_3);
+
+  if (env.LLM_API_KEY?.trim() && (env.LLM_API_KEY.startsWith('sk-or-') || env.LLM_BASE_URL.includes('openrouter.ai'))) {
+    // Only treat generic LLM_API_KEY as OpenRouter when it isn't an explicit Anthropic key.
+    if (!env.LLM_API_KEY.startsWith('sk-ant-')) {
+      pushSplit(env.LLM_API_KEY);
+    }
+  }
+
+  return [...new Set(candidates)];
+}
+
+export const llmEnabled = () => getOpenRouterKeys().length > 0 || !!env.LLM_API_KEY?.trim();
+
+/** Reset rotation cursor and cooldowns (for tests). */
+export function resetLlmRotation() {
+  keyCursor = 0;
+  keyCooldownUntil.clear();
+}
 
 /** Reasons shown on a draft that wasn't (or isn't yet) written. */
 export const AI_REASON = {
@@ -31,15 +74,27 @@ const FALLBACK_MODELS = new Set(['claude-fable-5-2', 'claude-fable-5-1', 'claude
 
 let client: Anthropic | undefined;
 const getAnthropicClient = () => {
-  client ??= new Anthropic({ apiKey: env.LLM_API_KEY, maxRetries: 2, timeout: 120_000 });
+  client ??= new Anthropic({ apiKey: env.LLM_API_KEY, maxRetries: 2, timeout: REQUEST_TIMEOUT_MS });
   return client;
 };
 
-async function generateJsonOpenRouter<S extends z.ZodType>(apiKey: string, system: string, prompt: string, schema: S): Promise<z.infer<S>> {
+/** Pick ordered keys for this request: healthy keys in round-robin order first, then cooled-down keys as fallback. */
+function orderedKeysForAttempt(keys: string[]): string[] {
+  const now = Date.now();
+  const start = keyCursor % keys.length;
+  keyCursor = (keyCursor + 1) % keys.length;
+
+  const rotated = [...keys.slice(start), ...keys.slice(0, start)];
+  const healthy = rotated.filter((k) => (keyCooldownUntil.get(k) ?? 0) <= now);
+  return healthy.length ? healthy : rotated;
+}
+
+async function callOpenRouterWithKey<S extends z.ZodType>(apiKey: string, system: string, prompt: string, schema: S): Promise<z.infer<S>> {
   const model = env.LLM_MODEL;
   const url = `${env.LLM_BASE_URL.replace(/\/+$/, '')}/chat/completions`;
   const response = await fetch(url, {
     method: 'POST',
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     headers: {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
@@ -61,14 +116,10 @@ async function generateJsonOpenRouter<S extends z.ZodType>(apiKey: string, syste
   });
 
   if (!response.ok) {
-    if (response.status === 401 || response.status === 403) {
-      throw new LlmStop('The AI service rejected the OpenRouter API key');
-    }
-    if (response.status === 404) {
-      throw new LlmStop(`The AI model "${model}" isn’t available on OpenRouter`);
-    }
-    const errText = await response.text();
-    throw new Error(`OpenRouter API error (${response.status}): ${errText}`);
+    const errText = await response.text().catch(() => '');
+    const err = new Error(`OpenRouter API error (${response.status}): ${errText}`) as Error & { status?: number };
+    err.status = response.status;
+    throw err;
   }
 
   const data = (await response.json()) as {
@@ -91,24 +142,63 @@ async function generateJsonOpenRouter<S extends z.ZodType>(apiKey: string, syste
       .trim();
   }
 
-  let parsed: unknown;
+  let rawJson: unknown;
   try {
-    parsed = JSON.parse(cleaned);
-  } catch (_err) {
+    rawJson = JSON.parse(cleaned);
+  } catch {
     throw new LlmStop('The AI answer did not contain valid JSON');
   }
 
-  return schema.parse(parsed);
+  const checked = schema.safeParse(rawJson);
+  if (!checked.success) {
+    throw new LlmStop('The AI answer did not match the expected format');
+  }
+  return checked.data;
+}
+
+async function generateJsonOpenRouter<S extends z.ZodType>(keys: string[], system: string, prompt: string, schema: S): Promise<z.infer<S>> {
+  const ordered = orderedKeysForAttempt(keys);
+  let lastErr: Error | undefined;
+  let authFailures = 0;
+
+  for (let i = 0; i < ordered.length; i++) {
+    const key = ordered[i];
+    try {
+      return await callOpenRouterWithKey(key, system, prompt, schema);
+    } catch (e: any) {
+      if (e instanceof LlmStop) throw e;
+      const status = e?.status as number | undefined;
+      if (status === 404) {
+        throw new LlmStop(`The AI model "${env.LLM_MODEL}" isn’t available on OpenRouter`);
+      }
+      if (status === 401 || status === 403 || status === 402) {
+        authFailures++;
+        keyCooldownUntil.set(key, Date.now() + AUTH_OR_QUOTA_COOLDOWN_MS);
+        log.warn({ keyIndex: i + 1, totalKeys: ordered.length, status }, 'OpenRouter key rejected or quota exhausted, rotating');
+        lastErr = e;
+        continue;
+      }
+      if (status === 429 || (status !== undefined && status >= 500)) {
+        keyCooldownUntil.set(key, Date.now() + RATE_LIMIT_COOLDOWN_MS);
+        log.warn({ keyIndex: i + 1, totalKeys: ordered.length, status }, 'OpenRouter key rate-limited or unavailable, rotating');
+        lastErr = e;
+        continue;
+      }
+      throw e;
+    }
+  }
+
+  if (authFailures === ordered.length) {
+    throw new LlmStop('All configured OpenRouter API keys were rejected or exhausted');
+  }
+  throw lastErr ?? new Error('All OpenRouter API keys failed');
 }
 
 /** Ask the model and get back an object matching `schema`. */
 export async function generateJson<S extends z.ZodType>(system: string, prompt: string, schema: S): Promise<z.infer<S>> {
-  const openRouterKey =
-    env.OPENROUTER_API_KEY ||
-    (env.LLM_API_KEY?.startsWith('sk-or-') || env.LLM_BASE_URL.includes('openrouter.ai') ? env.LLM_API_KEY : undefined);
-
-  if (openRouterKey) {
-    return generateJsonOpenRouter(openRouterKey, system, prompt, schema);
+  const openRouterKeys = getOpenRouterKeys();
+  if (openRouterKeys.length > 0) {
+    return generateJsonOpenRouter(openRouterKeys, system, prompt, schema);
   }
 
   const model = env.LLM_MODEL;

@@ -17,8 +17,13 @@ const schema = z.object({
   CONTACTOUT_MAX_LOOKUPS: z.coerce.number().int().min(0).default(50), // hard cap per calendar month
   MILLIONVERIFIER_API_KEY: z.string().optional(),
   MILLIONVERIFIER_MAX_CHECKS: z.coerce.number().int().min(0).default(500), // hard cap per calendar month
-  // OpenRouter (free tier) or Claude API key. Empty = AI off, drafts stay "pending".
+  // OpenRouter (free tier, supports up to 3 rotating keys or comma-separated list) or Claude API key.
+  // Empty = AI off, drafts stay "pending".
   OPENROUTER_API_KEY: z.string().optional(),
+  OPENROUTER_API_KEY_1: z.string().optional(),
+  OPENROUTER_API_KEY_2: z.string().optional(),
+  OPENROUTER_API_KEY_3: z.string().optional(),
+  OPENROUTER_API_KEYS: z.string().optional(),
   LLM_API_KEY: z.string().optional(),
   LLM_BASE_URL: z.string().default('https://openrouter.ai/api/v1'),
   LLM_MODEL: z.string().default('meta-llama/llama-3.3-70b-instruct:free'),

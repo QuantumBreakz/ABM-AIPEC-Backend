@@ -5,13 +5,14 @@ import { Suppression } from '../db/models.js';
 import { env } from '../env.js';
 import { requireRole } from '../lib/auth.js';
 import { notFound } from '../lib/errors.js';
+import { llmEnabled } from '../providers/llm.js';
 
 export const settingsRoutes = Router();
 export const suppressionsRoutes = Router(); // admin only (mounted in app.ts)
 
 /** Which paid providers are switched on. "On" only ever means "a key is set" (zero-new-cost rule). */
 settingsRoutes.get('/providers', (_req, res) => {
-  const hasLlm = !!(env.OPENROUTER_API_KEY || env.LLM_API_KEY);
+  const hasLlm = llmEnabled();
   const body: Providers = {
     contactout: !!env.CONTACTOUT_API_KEY,
     millionverifier: !!env.MILLIONVERIFIER_API_KEY,
