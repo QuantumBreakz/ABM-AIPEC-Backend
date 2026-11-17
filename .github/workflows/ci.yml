@@ -18,7 +18,10 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version-file: .nvmrc, cache: npm }
       - name: Workflow files are valid YAML
-        run: for f in .github/workflows/*.yml; do ruby -ryaml -e "YAML.safe_load(File.read('$f'), aliases: true)" || exit 1; done
+        run: |
+          for f in .github/workflows/*.yml; do
+            ruby -ryaml -e "YAML.safe_load(File.read('$f'), aliases: true)" || exit 1
+          done
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
