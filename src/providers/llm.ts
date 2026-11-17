@@ -89,9 +89,28 @@ function orderedKeysForAttempt(keys: string[]): string[] {
   return healthy.length ? healthy : rotated;
 }
 
-async function callOpenRouterWithKey<S extends z.ZodType>(apiKey: string, system: string, prompt: string, schema: S): Promise<z.infer<S>> {
-  const model = env.LLM_MODEL;
+async function callOpenRouterWithKey<S extends z.ZodType>(
+  apiKey: string,
+  model: string,
+  system: string,
+  prompt: string,
+  schema: S,
+  useJsonFormat = true,
+): Promise<z.infer<S>> {
   const url = `${env.LLM_BASE_URL.replace(/\/+$/, '')}/chat/completions`;
+  const payload: Record<string, unknown> = {
+    model,
+    messages: [
+      {
+        role: 'system',
+        content: `${system}\n\nCRITICAL: Respond ONLY with a raw JSON object matching the requested schema. No code fences (no \`\`\`json), no preamble, no markdown.`,
+      },
+      { role: 'user', content: prompt },
+    ],
+    temperature: 0.2,
+  };
+  if (useJsonFormat) payload.response_format = { type: 'json_object' };
+
   const response = await fetch(url, {
     method: 'POST',
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
@@ -101,21 +120,13 @@ async function callOpenRouterWithKey<S extends z.ZodType>(apiKey: string, system
       'HTTP-Referer': 'https://github.com/QuantumBreakz/ABM-AIPEC-Backend',
       'X-Title': 'ABM-AIPEC Outreach Agent',
     },
-    body: JSON.stringify({
-      model,
-      messages: [
-        {
-          role: 'system',
-          content: `${system}\n\nCRITICAL: Respond ONLY with a raw JSON object matching the requested schema. No code fences (no \`\`\`json), no preamble, no markdown.`,
-        },
-        { role: 'user', content: prompt },
-      ],
-      response_format: { type: 'json_object' },
-      temperature: 0.2,
-    }),
+    body: JSON.stringify(payload),
   });
 
   if (!response.ok) {
+    if (response.status === 400 && useJsonFormat) {
+      return callOpenRouterWithKey(apiKey, model, system, prompt, schema, false);
+    }
     const errText = await response.text().catch(() => '');
     const err = new Error(`OpenRouter API error (${response.status}): ${errText}`) as Error & { status?: number };
     err.status = response.status;
@@ -158,18 +169,30 @@ async function callOpenRouterWithKey<S extends z.ZodType>(apiKey: string, system
 
 async function generateJsonOpenRouter<S extends z.ZodType>(keys: string[], system: string, prompt: string, schema: S): Promise<z.infer<S>> {
   const ordered = orderedKeysForAttempt(keys);
+  let activeModel = env.LLM_MODEL;
   let lastErr: Error | undefined;
   let authFailures = 0;
 
   for (let i = 0; i < ordered.length; i++) {
     const key = ordered[i];
     try {
-      return await callOpenRouterWithKey(key, system, prompt, schema);
+      return await callOpenRouterWithKey(key, activeModel, system, prompt, schema);
     } catch (e: any) {
       if (e instanceof LlmStop) throw e;
       const status = e?.status as number | undefined;
       if (status === 404) {
-        throw new LlmStop(`The AI model "${env.LLM_MODEL}" isn’t available on OpenRouter`);
+        if (activeModel !== 'openrouter/free') {
+          log.warn({ model: activeModel }, 'Configured OpenRouter model unavailable (404), falling back to openrouter/free');
+          activeModel = 'openrouter/free';
+          try {
+            return await callOpenRouterWithKey(key, activeModel, system, prompt, schema);
+          } catch (fallbackErr: any) {
+            if (fallbackErr instanceof LlmStop) throw fallbackErr;
+            lastErr = fallbackErr;
+            continue;
+          }
+        }
+        throw new LlmStop(`The AI model "${activeModel}" isn’t available on OpenRouter`);
       }
       if (status === 401 || status === 403 || status === 402) {
         authFailures++;

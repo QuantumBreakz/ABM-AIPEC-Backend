@@ -26,7 +26,7 @@ const schema = z.object({
   OPENROUTER_API_KEYS: z.string().optional(),
   LLM_API_KEY: z.string().optional(),
   LLM_BASE_URL: z.string().default('https://openrouter.ai/api/v1'),
-  LLM_MODEL: z.string().default('meta-llama/llama-3.3-70b-instruct:free'),
+  LLM_MODEL: z.string().default('openrouter/free'),
   LLM_RPM: z.coerce.number().int().min(1).default(20), // max AI requests per minute
 });
 
