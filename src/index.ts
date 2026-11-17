@@ -4,6 +4,7 @@
  */
 import mongoose from 'mongoose';
 import { app } from './app.js';
+import { Event } from './db/models.js';
 import { env } from './env.js';
 import { log } from './lib/logger.js';
 import { startPipeline } from './pipeline/index.js';
@@ -16,6 +17,14 @@ let server: ReturnType<typeof app.listen> | undefined;
 try {
   await mongoose.connect(env.MONGO_URL, { serverSelectionTimeoutMS: 15_000 });
   await mongoose.syncIndexes();
+  if ((await Event.countDocuments()) === 0) {
+    await Event.create({
+      edition: 2026,
+      name: 'ADIPEC 2026',
+      directoryUrl: 'https://www.adipec.com/exhibition/exhibitor-list/',
+      advertisedCount: 2260,
+    });
+  }
   workers = startPipeline();
   await requeueUnfinished();
 
