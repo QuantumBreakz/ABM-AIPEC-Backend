@@ -28,7 +28,7 @@ export const EMAIL_STATUSES = ['verified', 'invalid', 'risky', 'unknown', 'not_c
 export const AI_STATUSES = ['pending', 'insufficient_evidence', 'draft', 'approved', 'rejected'] as const satisfies readonly AiStatus[];
 export const COVERAGE = ['confirmed_partial', 'unknown', 'reviewed'] as const satisfies readonly Coverage[];
 export const CONFIDENCE = ['high', 'medium', 'low'] as const satisfies readonly Confidence[];
-export const ROLES = ['admin', 'reviewer'] as const satisfies readonly Role[];
+export const ROLES = ['admin', 'user', 'reviewer'] as const satisfies readonly Role[];
 export const EXPORT_KINDS = ['companies', 'contacts', 'outreach'] as const satisfies readonly ExportKind[];
 
 const opts = { _id: false } as const;
@@ -223,8 +223,10 @@ export const User = model(
   new Schema(
     {
       email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+      username: { type: String, trim: true },
       passwordHash: { type: String, required: true },
-      role: { type: String, enum: ROLES, default: 'reviewer' },
+      role: { type: String, enum: ROLES, default: 'user' },
+      active: { type: Boolean, default: true },
     },
     { timestamps: true },
   ),

@@ -16,7 +16,7 @@ export type EmailStatus = 'verified' | 'invalid' | 'risky' | 'unknown' | 'not_ch
 export type AiStatus = 'pending' | 'insufficient_evidence' | 'draft' | 'approved' | 'rejected';
 export type Coverage = 'confirmed_partial' | 'unknown' | 'reviewed';
 export type Confidence = 'high' | 'medium' | 'low';
-export type Role = 'admin' | 'reviewer';
+export type Role = 'admin' | 'user' | 'reviewer';
 export type ReviewType = 'website' | 'duplicate' | 'salesnav' | 'contacts' | 'emails' | 'ai';
 export type ExportKind = 'companies' | 'contacts' | 'outreach';
 
@@ -26,7 +26,7 @@ export type StepState = { status: StepStatus; reason?: string; updatedAt?: strin
 export type Fact = { text: string; sourceUrl: string; kind: 'fact' | 'inference' };
 
 // ---------- users ----------
-export type User = { id: string; email: string; role: Role; createdAt: string };
+export type User = { id: string; email: string; username?: string; role: Role; active: boolean; createdAt: string };
 
 // ---------- events ----------
 export type Event = { id: string; edition: number; name: string; directoryUrl: string; advertisedCount?: number };

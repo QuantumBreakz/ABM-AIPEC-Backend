@@ -40,8 +40,8 @@ export const requireAuth: RequestHandler = async (req, _res, next) => {
   } catch {
     throw unauthorized('Session expired, please log in again');
   }
-  const user = sub ? await User.findById(sub, { email: 1, role: 1 }).lean() : null;
-  if (!user) throw unauthorized();
+  const user = sub ? await User.findById(sub, { email: 1, role: 1, active: 1 }).lean() : null;
+  if (!user || user.active === false) throw unauthorized();
   req.user = { id: String(user._id), email: user.email, role: user.role as Role };
   next();
 };

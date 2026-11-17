@@ -99,10 +99,12 @@ export const openApiSpec = {
         properties: {
           id: { type: 'string' },
           email: { type: 'string', format: 'email' },
-          name: { type: 'string' },
-          role: { type: 'string', enum: ['admin', 'reviewer'] },
+          username: { type: 'string', nullable: true },
+          role: { type: 'string', enum: ['admin', 'user', 'reviewer'] },
+          active: { type: 'boolean' },
+          createdAt: { type: 'string', format: 'date-time' },
         },
-        required: ['id', 'email', 'role'],
+        required: ['id', 'email', 'role', 'active'],
       },
       Event: {
         type: 'object',
@@ -231,6 +233,35 @@ export const openApiSpec = {
           },
           401: errResp('Wrong email or password'),
           429: errResp('Too many login attempts'),
+        },
+      },
+    },
+    '/auth/signup': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Create a new standard user account (role: user)',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['email', 'password'],
+                properties: {
+                  email: { type: 'string', format: 'email' },
+                  username: { type: 'string', minLength: 2, maxLength: 80 },
+                  password: { type: 'string', format: 'password', minLength: 8 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          201: {
+            description: 'Created user and started session cookie',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/User' } } },
+          },
+          409: errResp('An account with this email already exists'),
         },
       },
     },

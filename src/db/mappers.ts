@@ -162,10 +162,19 @@ export function toCompany(doc: CompanyDoc, contacts: ContactDoc[]): C.Company {
   };
 }
 
-export const toUser = (u: { _id: unknown; email: string; role?: string | null; createdAt?: Date }): C.User => ({
+export const toUser = (u: {
+  _id: unknown;
+  email: string;
+  username?: string | null;
+  role?: string | null;
+  active?: boolean | null;
+  createdAt?: Date;
+}): C.User => ({
   id: String(u._id),
   email: u.email,
-  role: (u.role ?? 'reviewer') as C.Role,
+  username: u.username ?? undefined,
+  role: (u.role ?? 'user') as C.Role,
+  active: u.active ?? true,
   createdAt: iso(u.createdAt)!,
 });
 
