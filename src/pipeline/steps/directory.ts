@@ -37,10 +37,11 @@ export async function directoryStep(job: Job<JobData>) {
   const { kept, skipped } = editionRows(data.Result ?? [], run.edition);
   if (!kept.length) throw new Error(`Directory returned no ${run.edition} exhibitors (${skipped} other rows)`);
 
+  const targetRows = run.limit && run.limit > 0 ? kept.slice(0, run.limit) : kept;
   const now = new Date();
   const companyIds = new Set<string>();
   // ponytail: ~3 queries per listing (~2k listings). Fine for one run; switch to bulkWrite if runs get frequent.
-  for (const row of kept) {
+  for (const row of targetRows) {
     const name = cleanText(row.CompanyName)!;
     const sourceId = String(row.Id);
     const company = (await Company.findOneAndUpdate(
@@ -72,8 +73,11 @@ export async function directoryStep(job: Job<JobData>) {
     companyIds.add(String(company._id));
   }
 
-  await Run.updateOne({ _id: runId }, { discovered: kept.length, duplicates: kept.length - companyIds.size, directoryDone: true });
-  log.info({ runId, listings: kept.length, companies: companyIds.size, skipped }, 'directory done');
+  await Run.updateOne(
+    { _id: runId },
+    { discovered: targetRows.length, duplicates: targetRows.length - companyIds.size, directoryDone: true },
+  );
+  log.info({ runId, listings: targetRows.length, companies: companyIds.size, skipped, limit: run.limit }, 'directory done');
 
   for (const id of companyIds) await continueAfter('directory', id, runId);
 }

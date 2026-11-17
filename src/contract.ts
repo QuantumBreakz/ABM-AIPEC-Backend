@@ -166,6 +166,7 @@ export type ContactAi = {
 export type Run = {
   id: string;
   edition: number;
+  limit?: number;
   status: 'running' | 'paused' | 'completed' | 'failed';
   steps: (StepKey | 'directory')[];
   startedBy: string;

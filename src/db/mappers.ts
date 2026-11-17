@@ -191,6 +191,7 @@ export type RunSummary = Pick<C.Run, 'counts' | 'perStep'>;
 export const toRun = (r: RunDoc, summary: RunSummary): C.Run => ({
   id: String(r._id),
   edition: r.edition,
+  limit: r.limit ?? undefined,
   status: r.status as C.Run['status'],
   steps: r.steps as C.Run['steps'],
   startedBy: r.startedBy ?? 'system',

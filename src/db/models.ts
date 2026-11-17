@@ -188,6 +188,7 @@ const runSchema = new Schema(
     steps: { type: [String], required: true },
     startedBy: String,
     directoryDone: { type: Boolean, default: false },
+    limit: Number,
     discovered: { type: Number, default: 0 }, // listings found in the directory for this edition
     duplicates: { type: Number, default: 0 }, // listings that turned out to be a company we already had
     errors: {

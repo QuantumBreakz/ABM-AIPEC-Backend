@@ -26,7 +26,7 @@ const COMPANY_ORDER: QueueName[] = ['profile', 'website', 'personalization'];
 
 export const activeRun = () => Run.findOne({ status: { $in: ['running', 'paused'] } }).lean();
 
-export async function startRun(edition: number, steps: RunStep[] | undefined, by: string) {
+export async function startRun(edition: number, steps: RunStep[] | undefined, by: string, limit?: number) {
   if (!(await Event.exists({ edition }))) throw badRequest(`Pick an edition that exists (no event for ${edition} yet).`);
   const running = await activeRun();
   if (running) {
@@ -39,7 +39,7 @@ export async function startRun(edition: number, steps: RunStep[] | undefined, by
   }
 
   const chosen = RUN_STEPS.filter((s) => !steps || steps.includes(s));
-  const run = await Run.create({ edition, steps: chosen, startedBy: by });
+  const run = await Run.create({ edition, steps: chosen, startedBy: by, ...(limit ? { limit } : {}) });
   const runId = String(run._id);
 
   if (chosen.includes('directory')) {
@@ -48,21 +48,27 @@ export async function startRun(edition: number, steps: RunStep[] | undefined, by
     // Re-running later steps only: start at the first chosen chain step for every company in the edition.
     const first = COMPANY_ORDER.find((s) => chosen.includes(s) && handlers[s]);
     if (first) {
-      const ids = await Company.find({ 'editions.edition': edition }, { _id: 1 }).lean();
+      const q = Company.find({ 'editions.edition': edition }, { _id: 1 });
+      if (limit) q.limit(limit);
+      const ids = await q.lean();
       for (const { _id } of ids) await enqueue(first, { companyId: String(_id), runId });
     }
     // Email lookup only makes sense where there are contacts.
     if (chosen.includes('emails') && handlers.emails) {
-      const ids = await Company.find({ 'editions.edition': edition, contactsCount: { $gt: 0 } }, { _id: 1 }).lean();
+      const q = Company.find({ 'editions.edition': edition, contactsCount: { $gt: 0 } }, { _id: 1 });
+      if (limit) q.limit(limit);
+      const ids = await q.lean();
       for (const { _id } of ids) await enqueue('emails', { companyId: String(_id), runId });
     }
     // Email check (the batch after the initial CSV): companies with emails never checked, or checked > 30 days ago.
     if (chosen.includes('verification') && handlers.verification) {
       const withStale = await Contact.distinct('company', needsCheckFilter());
-      const ids = await Company.find(
+      const q = Company.find(
         { 'editions.edition': edition, $or: [{ emailStatuses: 'not_checked' }, { _id: { $in: withStale } }] },
         { _id: 1 },
-      ).lean();
+      );
+      if (limit) q.limit(limit);
+      const ids = await q.lean();
       for (const { _id } of ids) await enqueue('verification', { companyId: String(_id), runId });
     }
   }

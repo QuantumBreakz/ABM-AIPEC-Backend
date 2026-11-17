@@ -18,8 +18,14 @@ runsRoutes.get('/', async (req, res) => {
 });
 
 runsRoutes.post('/', requireRole('admin'), async (req, res) => {
-  const body = z.object({ edition: z.number().int(), steps: z.array(z.enum(RUN_STEPS)).min(1).optional() }).parse(req.body);
-  const run = await startRun(body.edition, body.steps, req.user!.email);
+  const body = z
+    .object({
+      edition: z.number().int(),
+      steps: z.array(z.enum(RUN_STEPS)).min(1).optional(),
+      limit: z.number().int().min(1).max(5000).optional(),
+    })
+    .parse(req.body);
+  const run = await startRun(body.edition, body.steps, req.user!.email, body.limit);
   res.status(202).json(await full(run));
 });
 

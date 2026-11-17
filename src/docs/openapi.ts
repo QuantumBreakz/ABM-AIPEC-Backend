@@ -410,6 +410,7 @@ export const openApiSpec = {
                 required: ['edition'],
                 properties: {
                   edition: { type: 'integer', example: 2026 },
+                  limit: { type: 'integer', minimum: 1, maximum: 5000, description: 'Optional max number of leads to process in this run' },
                   steps: {
                     type: 'array',
                     items: {
