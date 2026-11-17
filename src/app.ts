@@ -6,6 +6,8 @@ import cookieParser from 'cookie-parser';
 import express from 'express';
 import helmet from 'helmet';
 import { pinoHttp } from 'pino-http';
+import swaggerUi from 'swagger-ui-express';
+import { openApiSpec } from './docs/openapi.js';
 import { requireAuth, requireRole } from './lib/auth.js';
 import { errorHandler, notFoundHandler } from './lib/errors.js';
 import { log } from './lib/logger.js';
@@ -36,6 +38,16 @@ app.use(cookieParser());
 
 // Public
 app.use(systemRoutes);
+app.get('/docs/openapi.json', (_req, res) => res.json(openApiSpec));
+app.use(
+  '/docs',
+  (_req: express.Request, res: express.Response, next: express.NextFunction) => {
+    res.removeHeader('Content-Security-Policy');
+    next();
+  },
+  swaggerUi.serve,
+  swaggerUi.setup(openApiSpec, { customSiteTitle: 'ABM-AIPEC API Docs' }),
+);
 app.use('/auth', authRoutes);
 
 // Everything below needs a logged-in user
