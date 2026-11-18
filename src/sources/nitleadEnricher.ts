@@ -51,7 +51,7 @@ export const TEAM_PATHS = [
 ];
 
 const EMAIL_RE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
-const PHONE_RE = /(?<!\d)(?:\+\d{1,3}[\s.-]?)?(?:\(?\d{2,4}\)?[\s.-]?)?\d{3,4}[\s.-]\d{3,7}(?!\d)/g;
+const PHONE_RE = /(?<!\d)(?:\+\d{1,3}[\s.-]?)?(?:(?:\(\d{1,4}\)|\d{1,4})[\s.-])?\d{3,4}[\s.-]\d{3,7}(?!\d)/g;
 
 const JUNK_EMAIL_SUFFIXES = [
   '.png',
@@ -385,8 +385,9 @@ export function cleanEmail(raw: string | undefined | null): string | null {
 export function cleanPhone(raw: string | undefined | null): string | null {
   if (!raw) return null;
   const trimmed = raw.trim().replace(/^tel:/i, '').trim();
-  // Reject year ranges like 2020-2026 or 1999 - 2025
-  if (/^(19|20)\d{2}\s*[-–/]\s*(19|20)\d{2}$/.test(trimmed)) return null;
+  const bare = trimmed.replace(/^\(+|\)+$/g, '').trim();
+  // Reject year ranges like 2020-2026 or (1999 - 2025)
+  if (/^(19|20)\d{2}\s*[-–/]\s*(19|20)\d{2}$/.test(bare)) return null;
   // Reject dotted IP-like numbers (e.g. 192.168.1.1)
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(trimmed)) return null;
   const digits = trimmed.replace(/\D/g, '');
