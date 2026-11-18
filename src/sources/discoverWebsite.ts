@@ -207,6 +207,9 @@ export async function discoverOfficialWebsite(input: {
     if (verified) return { url: verified, source: 'profile_text' };
   }
 
+  // In test runs, skip live external DuckDuckGo / public DNS probing to keep tests deterministic and fast.
+  if (process.env.NODE_ENV === 'test') return null;
+
   // Tier 2: Free DuckDuckGo HTML search
   try {
     const query = [input.name, input.country, 'official website'].filter(Boolean).join(' ');

@@ -147,13 +147,11 @@ describe('queue survives a Redis wipe', () => {
     const c = (await Company.findOne({ normalizedName: 'example drilling' }).lean())!;
     await Company.updateOne({ _id: c._id }, { 'stages.profile.status': 'in_progress' });
     await Run.updateOne({ _id: runId }, { status: 'running' });
-    await drainAll(); // simulate Render wiping Redis
+    await drainAll(); // simulate Render wiping queue memory
     await requeueUnfinished();
-    const { Queue } = await import('bullmq');
-    const { redis, PREFIX } = await import('../src/pipeline/queue.js');
-    const q = new Queue('profile', { connection: redis, prefix: PREFIX });
-    expect(await q.getJob(`profile-${c._id}`)).toBeTruthy();
+    const { getQueuedJobIds } = await import('../src/pipeline/queue.js');
+    expect(getQueuedJobIds('profile')).toContain(`profile-${c._id}`);
     await requeue('profile', { companyId: String(c._id), runId }); // same id → still one job
-    expect(await q.getJobCountByTypes('waiting', 'prioritized')).toBe(1);
+    expect(getQueuedJobIds('profile')).toHaveLength(1);
   });
 });
