@@ -7,6 +7,7 @@ import { AI_STATUSES, CONFIDENCE, COVERAGE, Company, Contact, EMAIL_STATUSES, Hi
 import { requireRole } from '../lib/auth.js';
 import { badRequest, conflict, notFound } from '../lib/errors.js';
 import { normalizeDomain, normalizeName } from '../lib/normalize.js';
+import { enrichAndSaveCompanyContacts } from '../pipeline/enrichment.js';
 import { queueIfReady } from '../pipeline/queue.js';
 import { markNotDuplicate, mergeCompanies } from '../pipeline/research.js';
 import { paging } from './paging.js';
@@ -217,6 +218,14 @@ companiesRoutes.post('/:id/merge', async (req, res) => {
 companiesRoutes.post('/:id/not-duplicate', async (req, res) => {
   await markNotDuplicate(String(req.params.id), req.user!.email);
   res.json(await companyResponse(String(req.params.id)));
+});
+
+/** On-demand NitLead scraping for one company: scrapes website, contact/team pages & OSINT for emails and contacts. */
+companiesRoutes.post('/:id/enrich', async (req, res) => {
+  const company = await Company.findById(req.params.id, { _id: 1 }).lean();
+  if (!company) throw notFound('Company not found');
+  const summary = await enrichAndSaveCompanyContacts(String(company._id));
+  res.json({ company: await companyResponse(String(company._id)), summary });
 });
 
 /** The company's timeline, newest first. Contact changes appear as `contact:<id>` entries. */

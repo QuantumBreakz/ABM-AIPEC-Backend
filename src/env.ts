@@ -17,6 +17,11 @@ const schema = z.object({
   CONTACTOUT_MAX_LOOKUPS: z.coerce.number().int().min(0).default(50), // hard cap per calendar month
   MILLIONVERIFIER_API_KEY: z.string().optional(),
   MILLIONVERIFIER_MAX_CHECKS: z.coerce.number().int().min(0).default(500), // hard cap per calendar month
+  // Optional NitLead-compatible email enrichment providers (all OFF unless keys are set).
+  HUNTER_API_KEY: z.string().optional(),
+  APOLLO_API_KEY: z.string().optional(),
+  SNOV_CLIENT_ID: z.string().optional(),
+  SNOV_CLIENT_SECRET: z.string().optional(),
   // OpenRouter (free tier, supports up to 3 rotating keys or comma-separated list) or Claude API key.
   // Empty = AI off, drafts stay "pending".
   OPENROUTER_API_KEY: z.string().optional(),

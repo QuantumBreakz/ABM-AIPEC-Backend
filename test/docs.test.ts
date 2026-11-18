@@ -34,6 +34,7 @@ describe('Swagger /docs endpoint', () => {
       '/companies/{id}/steps/{step}',
       '/companies/{id}/merge',
       '/companies/{id}/not-duplicate',
+      '/companies/{id}/enrich',
       '/companies/{id}/history',
       '/companies/{id}/contacts',
       '/companies/{id}/contacts/import',

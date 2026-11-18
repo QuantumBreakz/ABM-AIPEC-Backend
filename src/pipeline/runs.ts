@@ -21,8 +21,8 @@ import { needsCheckFilter } from './steps/verification.js';
  */
 export const RUN_STEPS = ['directory', ...STEPS] as const;
 export type RunStep = (typeof RUN_STEPS)[number];
-/** The per-company chain. `emails` isn't in it: it runs when contacts are added (or when a run asks for it). */
-const COMPANY_ORDER: QueueName[] = ['profile', 'website', 'personalization'];
+/** The per-company chain: profile → website → emails (NitLead contact & email scraper) → personalization. */
+const COMPANY_ORDER: QueueName[] = ['profile', 'website', 'emails', 'personalization'];
 
 export const activeRun = () => Run.findOne({ status: { $in: ['running', 'paused'] } }).lean();
 
@@ -56,17 +56,6 @@ export async function startRun(edition: number, steps: RunStep[] | undefined, by
         const companyId = String(_id);
         runCompanyIds.add(companyId);
         await enqueue(first, { companyId, runId });
-      }
-    }
-    // Email lookup only makes sense where there are contacts.
-    if (chosen.includes('emails') && handlers.emails) {
-      const q = Company.find({ 'editions.edition': edition, contactsCount: { $gt: 0 } }, { _id: 1 });
-      if (limit) q.limit(limit);
-      const ids = await q.lean();
-      for (const { _id } of ids) {
-        const companyId = String(_id);
-        runCompanyIds.add(companyId);
-        await enqueue('emails', { companyId, runId });
       }
     }
     // Email check (the batch after the initial CSV): companies with emails never checked, or checked > 30 days ago.

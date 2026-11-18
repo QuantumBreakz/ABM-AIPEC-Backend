@@ -1,30 +1,63 @@
 /**
- * Email lookup for a company's contacts (runs when contacts are added, or when a run asks for it).
- * Only contacts without a business email are looked up. Emails are never guessed (no first.last@ patterns).
- * Without ContactOut the step says so and reviewers add emails by hand (FR-17, FR-22).
+ * Contact & email discovery for a company.
+ * 1. Runs the free NitLead scraper (homepage + contact/team path probing + Cloudflare email decoding
+ *    + DuckDuckGo OSINT + optional Hunter/Apollo/Snov) to discover contacts, emails, and phones.
+ * 2. If ContactOut is connected and any contacts still lack a personal work email, looks them up via ContactOut.
+ * 3. Chains onward to `personalization` when running inside a pipeline run.
  */
 import type { Job } from 'bullmq';
 import { refreshContactStats, setStep } from '../../db/helpers.js';
-import { Contact } from '../../db/models.js';
+import { Company, Contact } from '../../db/models.js';
 import { env } from '../../env.js';
 import { suppressedOf } from '../../lib/suppression.js';
 import { contactoutEnabled, isLinkedInProfile, lookupWorkEmails, ProviderStop, takeLookup } from '../../providers/contactout.js';
+import { enrichAndSaveCompanyContacts } from '../enrichment.js';
 import type { JobData } from '../queue.js';
+import { continueAfter } from '../runs.js';
 
 export async function emailsStep(job: Job<JobData>) {
   const companyId = job.data.companyId!;
-  const contacts = await Contact.find({ company: companyId }).lean();
-  if (!contacts.length) return setStep(companyId, 'emails', 'not_started', 'No contacts yet');
+  const runId = job.data.runId;
+  const company = await Company.findById(companyId).lean();
+  if (!company) return;
+
+  const canScrape = Boolean(company.website?.url || company.domain || company.editions?.length);
+  let contacts = await Contact.find({ company: companyId }).lean();
+
+  if (!contacts.length) {
+    if (canScrape) {
+      await enrichAndSaveCompanyContacts(companyId);
+      contacts = await Contact.find({ company: companyId }).lean();
+      if (!contactoutEnabled() || !contacts.some((c) => !c.emails.some((e) => e.type !== 'generic'))) {
+        await continueAfter('emails', companyId, runId);
+        return;
+      }
+    } else {
+      await setStep(companyId, 'emails', 'not_started', 'No contacts yet');
+      await continueAfter('emails', companyId, runId);
+      return;
+    }
+  }
 
   const need = contacts.filter((c) => !c.emails.some((e) => e.type !== 'generic'));
-  if (!need.length) return setStep(companyId, 'emails', 'completed', `All ${contacts.length} contacts have an email`);
+  if (!need.length) {
+    await setStep(companyId, 'emails', 'completed', `All ${contacts.length} contacts have an email`);
+    await continueAfter('emails', companyId, runId);
+    return;
+  }
   if (!contactoutEnabled()) {
-    return setStep(
-      companyId,
-      'emails',
-      'pending_access',
-      `ContactOut isn’t connected. ${need.length} contact(s) need an email added by hand.`,
-    );
+    if (canScrape) {
+      await enrichAndSaveCompanyContacts(companyId);
+    } else {
+      await setStep(
+        companyId,
+        'emails',
+        'pending_access',
+        `ContactOut isn’t connected. ${need.length} contact(s) need an email added by hand.`,
+      );
+    }
+    await continueAfter('emails', companyId, runId);
+    return;
   }
 
   let found = 0;
@@ -81,6 +114,7 @@ export async function emailsStep(job: Job<JobData>) {
     empty ? `${empty} had none in ContactOut` : '',
     noProfile ? `${noProfile} have no LinkedIn profile link` : '',
   ].filter(Boolean);
-  if (stop) return setStep(companyId, 'emails', 'pending_access', `${stop}. ${notes.join('. ')}`);
-  return setStep(companyId, 'emails', found === need.length ? 'completed' : 'partial', notes.join('. '));
+  if (stop) await setStep(companyId, 'emails', 'pending_access', `${stop}. ${notes.join('. ')}`);
+  else await setStep(companyId, 'emails', found === need.length ? 'completed' : 'partial', notes.join('. '));
+  await continueAfter('emails', companyId, runId);
 }

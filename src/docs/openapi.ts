@@ -603,6 +603,15 @@ export const openApiSpec = {
         responses: { 200: { description: 'Updated company' } },
       },
     },
+    '/companies/{id}/enrich': {
+      post: {
+        tags: ['Companies'],
+        summary: 'Scrape company website, contact/team pages, and OSINT for emails and contacts',
+        security: authSecurity,
+        parameters: [idParam],
+        responses: { 200: { description: 'Enriched company and scrape summary' }, 404: errResp('Company not found') },
+      },
+    },
     '/companies/{id}/history': {
       get: {
         tags: ['Companies'],
