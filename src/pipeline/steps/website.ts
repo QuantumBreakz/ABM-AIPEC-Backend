@@ -10,6 +10,7 @@ import { Company } from '../../db/models.js';
 import { FetchError, fetchPage } from '../../lib/fetcher.js';
 import { normalizeDomain } from '../../lib/normalize.js';
 import { discoverOfficialWebsite } from '../../sources/discoverWebsite.js';
+import { safeBrowserFetch } from '../../sources/nitleadEnricher.js';
 import {
   factSentences,
   genericEmails,
@@ -89,10 +90,17 @@ export async function websiteStep(job: Job<JobData>) {
   try {
     home = await fetchPage(url);
   } catch (e) {
-    if (!(e instanceof FetchError) || e.retryable) throw e; // BullMQ retries network blips
-    const [status, reason] = describe(e);
-    await Company.updateOne({ _id: id }, { $set: { 'website.skipped': [{ url, reason }] } });
-    return finish(status, reason, socialFromProfile);
+    // NitLead fallback: rescue WAF-blocked (403), HTTP/2, or incomplete TLS cert-chain sites with browser-like HTTP/1.1 fetch.
+    const canFallback = e instanceof FetchError && !['robots', 'dns', 'private_address', 'bad_url'].includes(e.kind);
+    const rescued = canFallback ? await safeBrowserFetch(url) : null;
+    if (rescued && rescued.status >= 200 && rescued.status < 300 && rescued.contentType.includes('html')) {
+      home = rescued;
+    } else {
+      if (!(e instanceof FetchError) || e.retryable) throw e; // BullMQ retries network blips
+      const [status, reason] = describe(e);
+      await Company.updateOne({ _id: id }, { $set: { 'website.skipped': [{ url, reason }] } });
+      return finish(status, reason, socialFromProfile);
+    }
   }
   if (!home.contentType.includes('html')) return finish('failed', 'The website didn’t return a web page', socialFromProfile);
 

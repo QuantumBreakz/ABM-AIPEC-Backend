@@ -189,6 +189,7 @@ const runSchema = new Schema(
     startedBy: String,
     directoryDone: { type: Boolean, default: false },
     limit: Number,
+    companyIds: { type: [Types.ObjectId], default: undefined },
     discovered: { type: Number, default: 0 }, // listings found in the directory for this edition
     duplicates: { type: Number, default: 0 }, // listings that turned out to be a company we already had
     errors: {

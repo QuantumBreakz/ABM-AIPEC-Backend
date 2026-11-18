@@ -435,6 +435,20 @@ export const openApiSpec = {
         responses: { 200: { description: 'Run details' }, 404: errResp('Run not found') },
       },
     },
+    '/runs/{id}/companies': {
+      get: {
+        tags: ['Runs'],
+        summary: 'List companies discovered or processed in a run',
+        security: authSecurity,
+        parameters: [
+          idParam,
+          pageQuery,
+          pageSizeQuery,
+          { name: 'q', in: 'query', schema: { type: 'string' }, description: 'Filter by company name or domain' },
+        ],
+        responses: { 200: { description: 'Paged company list for this run' }, 404: errResp('Run not found') },
+      },
+    },
     '/runs/{id}/pause': {
       post: {
         tags: ['Runs'],
@@ -587,6 +601,15 @@ export const openApiSpec = {
         security: authSecurity,
         parameters: [idParam],
         responses: { 200: { description: 'Updated company' } },
+      },
+    },
+    '/companies/{id}/enrich': {
+      post: {
+        tags: ['Companies'],
+        summary: 'Scrape company website, contact/team pages, and OSINT for emails and contacts',
+        security: authSecurity,
+        parameters: [idParam],
+        responses: { 200: { description: 'Enriched company and scrape summary' }, 404: errResp('Company not found') },
       },
     },
     '/companies/{id}/history': {

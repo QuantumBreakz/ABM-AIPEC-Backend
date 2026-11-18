@@ -63,6 +63,7 @@ describe('directory step', () => {
   it('merges listings of the same company and counts the merge as a duplicate', async () => {
     const run = (await Run.findById(runId).lean())!;
     expect(run).toMatchObject({ discovered: 4, duplicates: 1, directoryDone: true });
+    expect(run.companyIds).toHaveLength(3);
     expect(await Company.countDocuments()).toBe(3);
     const drilling = (await Company.findOne({ normalizedName: 'example drilling' }).lean())!;
     expect(drilling.editions.map((e) => e.sourceId).sort()).toEqual(['101', '103']);
