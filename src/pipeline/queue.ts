@@ -63,11 +63,29 @@ export type JobHooks = {
 };
 
 // ponytail: Render free is 0.1 CPU / 512 MB, so 2 jobs at a time per queue. Raise on a paid plan.
+// Upstash free-tier tuning: default BullMQ drainDelay (5s) + stalledInterval (30s) burns ~120k Redis
+// commands/day across 6 idle workers. Long drainDelay/stalledInterval/lockDuration cut idle usage by >99%
+// while still waking up immediately when enqueue() pushes a job.
+const upstashOpts =
+  env.NODE_ENV === 'test'
+    ? {}
+    : {
+        drainDelay: 1800, // 30 min idle block instead of 5s polling
+        stalledInterval: 600_000, // 10 min instead of 30s
+        lockDuration: 120_000, // 2 min lock window instead of 30s
+      };
+
 export function startWorkers(hooks: JobHooks) {
   return (Object.entries(handlers) as [QueueName, Handler][]).map(([name, handler]) => {
     // The AI worker is also throttled to LLM_RPM jobs a minute, so a big run never trips the provider's limits.
     const limiter = name === 'personalization' ? { limiter: { max: env.LLM_RPM, duration: 60_000 } } : {};
-    const w = new Worker<JobData>(name, handler, { connection: redis, prefix: PREFIX, concurrency: 2, ...limiter });
+    const w = new Worker<JobData>(name, handler, {
+      connection: redis,
+      prefix: PREFIX,
+      concurrency: 2,
+      ...upstashOpts,
+      ...limiter,
+    });
     w.on('completed', (job) => hooks.onDone(name, job).catch((e) => log.error({ err: e }, 'onDone hook failed')));
     w.on('failed', (job, err) => {
       if (!job) return;
