@@ -170,6 +170,24 @@ describe('events, runs, companies, overview', () => {
     expect((await admin.post(`/runs/${started.body.id}/resume`)).body.status).toBe('running');
     expect((await reviewer.get('/runs')).body.total).toBe(1);
     await Run.updateOne({ _id: started.body.id }, { status: 'completed' });
+
+    // Legacy run without companyIds falls back to edition companies
+    const legacy = await reviewer.get(`/runs/${started.body.id}/companies`).expect(200);
+    expect(legacy.body).toMatchObject({ page: 1, pageSize: 50, total: 3 });
+
+    // Tracked run with companyIds returns only its own companies and supports search + paging
+    const alpha = (await Company.findOne({ normalizedName: 'alpha drilling' }).lean())!;
+    const beta = (await Company.findOne({ normalizedName: 'beta subsea' }).lean())!;
+    await Run.updateOne({ _id: started.body.id }, { companyIds: [alpha._id, beta._id] });
+    const tracked = await reviewer.get(`/runs/${started.body.id}/companies`).expect(200);
+    expect(tracked.body.total).toBe(2);
+    expect(tracked.body.items.map((c: { name: string }) => c.name)).toEqual(['Alpha Drilling', 'Beta Subsea']);
+
+    const filtered = await reviewer.get(`/runs/${started.body.id}/companies?q=beta`).expect(200);
+    expect(filtered.body.total).toBe(1);
+    expect(filtered.body.items[0].name).toBe('Beta Subsea');
+
+    expect((await reviewer.get('/runs/64b000000000000000000000/companies')).status).toBe(404);
   });
 
   it('refuses a run for an unknown edition', async () => {

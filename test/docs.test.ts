@@ -26,6 +26,7 @@ describe('Swagger /docs endpoint', () => {
       '/events',
       '/runs',
       '/runs/{id}',
+      '/runs/{id}/companies',
       '/runs/{id}/pause',
       '/runs/{id}/resume',
       '/companies',

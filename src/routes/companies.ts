@@ -80,7 +80,7 @@ export const SORT: Record<string, Record<string, 1 | -1>> = {
 };
 
 /** Email status counts per company, for one page of the list, in a single query. */
-async function emailCounts(ids: unknown[]) {
+export async function emailCounts(ids: unknown[]) {
   const rows: { _id: { c: unknown; s: string }; n: number }[] = await Contact.aggregate([
     { $match: { company: { $in: ids } } },
     { $unwind: '$emails' },

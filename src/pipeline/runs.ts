@@ -45,20 +45,29 @@ export async function startRun(edition: number, steps: RunStep[] | undefined, by
   if (chosen.includes('directory')) {
     await enqueue('directory', { runId });
   } else {
+    const runCompanyIds = new Set<string>();
     // Re-running later steps only: start at the first chosen chain step for every company in the edition.
     const first = COMPANY_ORDER.find((s) => chosen.includes(s) && handlers[s]);
     if (first) {
       const q = Company.find({ 'editions.edition': edition }, { _id: 1 });
       if (limit) q.limit(limit);
       const ids = await q.lean();
-      for (const { _id } of ids) await enqueue(first, { companyId: String(_id), runId });
+      for (const { _id } of ids) {
+        const companyId = String(_id);
+        runCompanyIds.add(companyId);
+        await enqueue(first, { companyId, runId });
+      }
     }
     // Email lookup only makes sense where there are contacts.
     if (chosen.includes('emails') && handlers.emails) {
       const q = Company.find({ 'editions.edition': edition, contactsCount: { $gt: 0 } }, { _id: 1 });
       if (limit) q.limit(limit);
       const ids = await q.lean();
-      for (const { _id } of ids) await enqueue('emails', { companyId: String(_id), runId });
+      for (const { _id } of ids) {
+        const companyId = String(_id);
+        runCompanyIds.add(companyId);
+        await enqueue('emails', { companyId, runId });
+      }
     }
     // Email check (the batch after the initial CSV): companies with emails never checked, or checked > 30 days ago.
     if (chosen.includes('verification') && handlers.verification) {
@@ -69,8 +78,13 @@ export async function startRun(edition: number, steps: RunStep[] | undefined, by
       );
       if (limit) q.limit(limit);
       const ids = await q.lean();
-      for (const { _id } of ids) await enqueue('verification', { companyId: String(_id), runId });
+      for (const { _id } of ids) {
+        const companyId = String(_id);
+        runCompanyIds.add(companyId);
+        await enqueue('verification', { companyId, runId });
+      }
     }
+    await Run.updateOne({ _id: runId }, { companyIds: [...runCompanyIds] });
   }
   await maybeFinishRun(runId);
   return (await Run.findById(runId).lean())!;
@@ -115,6 +129,11 @@ export async function recordRunError(
   await Run.updateOne({ _id: runId }, { $push: { errors: { $each: [{ ...e, at: new Date() }], $slice: -100 } } });
 }
 
+/** Scope filter for companies belonging to a run (uses tracked companyIds when available, else falls back to edition). */
+export function runCompanyFilter(run: Pick<RunDoc, 'edition' | 'companyIds'>): Record<string, any> {
+  return Array.isArray(run.companyIds) ? { _id: { $in: [...run.companyIds] } } : { 'editions.edition': run.edition };
+}
+
 /** Done when the directory is done and no company step of this run is still queued or running. */
 export async function maybeFinishRun(runId?: string) {
   if (!runId) return;
@@ -124,7 +143,7 @@ export async function maybeFinishRun(runId?: string) {
   const steps = run.steps.filter(isStep);
   if (steps.length) {
     const busy = await Company.exists({
-      'editions.edition': run.edition,
+      ...runCompanyFilter(run),
       $or: steps.map((s) => ({ [`stages.${s}.status`]: 'in_progress' })),
     });
     if (busy) return;
@@ -135,10 +154,10 @@ export async function maybeFinishRun(runId?: string) {
 
 const DONE: StepStatus[] = ['completed', 'partial', 'needs_review', 'pending_access', 'restricted', 'approved'];
 
-/** Counts for the Runs screen, from the current state of every company in the edition. */
+/** Counts for the Runs screen, from the current state of every company in the run. */
 export async function summarize(run: RunDoc): Promise<RunSummary> {
   const steps = run.steps.filter(isStep) as StepKey[];
-  const companies = await Company.find({ 'editions.edition': run.edition }, { stages: 1 }).lean();
+  const companies = await Company.find(runCompanyFilter(run), { stages: 1 }).lean();
   const status = (c: (typeof companies)[number], s: StepKey): StepStatus => ((c.stages as any)?.[s]?.status ?? 'not_started') as StepStatus;
 
   const perStep: RunSummary['perStep'] = {};

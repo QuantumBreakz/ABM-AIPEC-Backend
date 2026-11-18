@@ -75,7 +75,12 @@ export async function directoryStep(job: Job<JobData>) {
 
   await Run.updateOne(
     { _id: runId },
-    { discovered: targetRows.length, duplicates: targetRows.length - companyIds.size, directoryDone: true },
+    {
+      discovered: targetRows.length,
+      duplicates: targetRows.length - companyIds.size,
+      directoryDone: true,
+      companyIds: [...companyIds],
+    },
   );
   log.info({ runId, listings: targetRows.length, companies: companyIds.size, skipped, limit: run.limit }, 'directory done');
 

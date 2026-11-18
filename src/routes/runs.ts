@@ -1,10 +1,11 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { toRun } from '../db/mappers.js';
-import { Run, type RunDoc } from '../db/models.js';
+import { toListItem, toRun } from '../db/mappers.js';
+import { Company, Run, type RunDoc } from '../db/models.js';
 import { requireRole } from '../lib/auth.js';
 import { notFound } from '../lib/errors.js';
-import { pauseRun, RUN_STEPS, resumeRun, startRun, summarize } from '../pipeline/runs.js';
+import { pauseRun, RUN_STEPS, resumeRun, runCompanyFilter, startRun, summarize } from '../pipeline/runs.js';
+import { companyQuery, emailCounts } from './companies.js';
 import { paging } from './paging.js';
 
 export const runsRoutes = Router();
@@ -33,6 +34,27 @@ runsRoutes.get('/:id', async (req, res) => {
   const run = await Run.findById(req.params.id).lean();
   if (!run) throw notFound('Run not found');
   res.json(await full(run));
+});
+
+runsRoutes.get('/:id/companies', async (req, res) => {
+  const run = await Run.findById(req.params.id).lean();
+  if (!run) throw notFound('Run not found');
+  const { page, pageSize, skip } = paging(req.query);
+  const { q } = z.object({ q: z.string().trim().max(200).optional() }).parse(req.query);
+  const base = runCompanyFilter(run);
+  const search = q ? companyQuery({ q, sort: 'name' }) : null;
+  const query = search && Object.keys(search).length ? { $and: [base, search] } : base;
+  const [docs, total] = await Promise.all([
+    Company.find(query).sort({ normalizedName: 1 }).skip(skip).limit(pageSize).lean(),
+    Company.countDocuments(query),
+  ]);
+  const counts = await emailCounts(docs.map((d) => d._id));
+  res.json({
+    items: docs.map((d) => toListItem(d, counts.get(String(d._id)) ?? {}, run.edition)),
+    page,
+    pageSize,
+    total,
+  });
 });
 
 runsRoutes.post('/:id/pause', requireRole('admin'), async (req, res) => {
